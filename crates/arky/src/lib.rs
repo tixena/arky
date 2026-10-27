@@ -35,12 +35,12 @@
 //!
 //! # Getting started
 //!
-//! Add the crate from its git repository. With the default features, arky parses, edits and
+//! Add the crate. With the default features, arky parses, edits and
 //! writes documents, and gives the markdown, JSON and zip forms.
 //!
 //! ```toml
 //! [dependencies]
-//! arky = { git = "https://github.com/tixena/arky" }
+//! arky = "0.1"
 //! ```
 //!
 //! Parse a file, read a frontmatter value, change it, and write the file back:
@@ -321,7 +321,7 @@ assert!(matches!(
 //! `arky-store` crate. A path with no store is a file on disk.
 //!
 //! ```console
-//! $ cargo install --git https://github.com/tixena/arky arky-cli
+//! $ cargo install arky-cli
 //! $ printf 'Plan\n====\n\n* draft\n* review\n' > plan.md
 //! $ arky get plan.md
 //! # Plan
@@ -372,7 +372,7 @@ assert!(matches!(
 //!
 //! ```toml
 //! [dependencies]
-//! arky = { git = "https://github.com/tixena/arky", features = ["binary-format", "mongodb"] }
+//! arky = { version = "0.1", features = ["binary-format", "mongodb"] }
 //! bson = { version = "3.1", features = ["serde"] }
 //! ```
 //!
