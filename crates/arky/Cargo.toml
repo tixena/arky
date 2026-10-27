@@ -7,6 +7,7 @@ rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
 license.workspace = true
+readme.workspace = true
 keywords = ["markdown", "parser", "frontmatter", "ast", "document"]
 categories = ["parser-implementations", "text-processing"]
 include = ["/src/**/*.rs", "/GRAMMAR.md", "/LICENSE"]

@@ -7,6 +7,7 @@ rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
 license.workspace = true
+readme.workspace = true
 keywords = ["markdown", "storage", "mongodb", "minio"]
 categories = ["database", "filesystem"]
 include = ["/src/**/*.rs", "/LICENSE"]
