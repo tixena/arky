@@ -7,6 +7,8 @@ rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
 license.workspace = true
+keywords = ["markdown", "parser", "frontmatter", "ast", "document"]
+categories = ["parser-implementations", "text-processing"]
 
 [lints]
 workspace = true

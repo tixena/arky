@@ -7,6 +7,8 @@ rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
 license.workspace = true
+keywords = ["markdown", "storage", "mongodb", "minio"]
+categories = ["database", "filesystem"]
 
 [lints]
 workspace = true
@@ -30,7 +32,7 @@ mongodb = [
 minio = ["os-shim/minio", "os-shim/async"]
 
 [dependencies]
-arky = { path = "../arky" }
+arky.workspace = true
 os-shim = { workspace = true, features = ["async"] }
 sha2.workspace = true
 thiserror.workspace = true
