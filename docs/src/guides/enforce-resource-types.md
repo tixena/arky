@@ -1,7 +1,7 @@
 # Enforce resource types
 
 A *resource type* says what a document is: a person, a project, a task, a
-contract. Types are declared by remargin; archie checks that documents satisfy
+contract. Types are declared by remargin; arky checks that documents satisfy
 them. This guide walks that division in the order the work happens.
 
 Types are declared per corpus rather than chosen from a fixed list, and one type
@@ -12,14 +12,14 @@ can extend another to add to it. For the three words and how they relate, see
 
 A type carries the properties a document of that type must have, and it may carry
 *actions* — a `task` type, for example, declares `defer`, `close`, and `assign`.
-archie enforces types; it does not execute actions. Declaring a type is
+arky enforces types; it does not execute actions. Declaring a type is
 remargin's work and this book does not document it.
 
 ## Step 2: express what the type requires as a shape
 
-*Not yet specified.* archie enforces a type by checking documents against shapes,
+*Not yet specified.* arky enforces a type by checking documents against shapes,
 and neither the notation a shape is written in nor the handover that turns a
-declared type into a shape archie can check is defined. See
+declared type into a shape arky can check is defined. See
 [Define a shape](define-a-shape.md) and
 [Shape language](../reference/shape-language.md).
 
@@ -31,12 +31,12 @@ is a way to write it down.
 ## Step 3: run the linter
 
 ```console
-$ archie lint folder/
-$ archie check src/work/
+$ arky lint folder/
+$ arky check src/work/
 ```
 
 See [Lint a vault](lint-a-vault.md) for the run and its options, and
-[archie check](../reference/cli/check.md) for the option table.
+[arky check](../reference/cli/check.md) for the option table.
 
 ## Step 4: read the type findings
 
@@ -74,7 +74,7 @@ See [Design status](../design-status.md) for the open questions here.
 
 - [Shapes, schemas, and resource types](../concepts/shapes-schemas-resource-types.md)
   — the three words and the boundary between them.
-- [archie and remargin](../concepts/archie-and-remargin.md) — where the line
+- [arky and remargin](../concepts/arky-and-remargin.md) — where the line
   between the two runs.
 - [Define a shape](define-a-shape.md) — the declaration side of the same work.
 - [Lint a vault](lint-a-vault.md) — running the check that enforces the types.

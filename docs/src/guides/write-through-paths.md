@@ -1,12 +1,12 @@
 # Write through paths
 
-`archie write` changes part of one document. A path expression says which part,
+`arky write` changes part of one document. A path expression says which part,
 and the write applies to exactly that part rather than to the file as a whole.
 
 ## Synopsis
 
 ```console
-$ archie write folder/file.md --path='# ##["Specs"][2]' --append --from-body='path-to-file.txt'
+$ arky write folder/file.md --path='# ##["Specs"][2]' --append --from-body='path-to-file.txt'
 ```
 
 It names one document, addresses a part of it with `--path`, appends rather than
@@ -75,11 +75,11 @@ See [Design status](../design-status.md) for the open questions here.
 
 ## Related
 
-- [archie write](../reference/cli/write.md) — the command reference.
+- [arky write](../reference/cli/write.md) — the command reference.
 - [Query grammar](../reference/query-grammar.md) — the path expression.
 - [Change objects](../reference/change-objects.md) — the transactional model.
 - [Changes and versions](../concepts/changes-and-versions.md) — the concept.
 - [Query and search](query-and-search.md) — selecting the documents a change
   applies to.
-- [A first session with archie](../tutorial/first-session.md) — the same steps
+- [A first session with arky](../tutorial/first-session.md) — the same steps
   front to back.

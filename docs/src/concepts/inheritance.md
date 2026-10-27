@@ -35,7 +35,7 @@ specified* — see
 [Shapes, schemas, and resource types](shapes-schemas-resource-types.md) for where
 those types are owned.
 
-## What archie does with it
+## What arky does with it
 
 Three validation rules act on the mechanism.
 
@@ -47,19 +47,19 @@ Three validation rules act on the mechanism.
 - `allowed-types` reports a file whose type the folder's `allows` block does not
   permit, naming the allowed types and the file that declared them.
 
-One command prints the chain. `archie trace` walks from the root down to one file
+One command prints the chain. `arky trace` walks from the root down to one file
 and shows, level by level, what each `index.md` contributes and where it came
 from, ending with the properties the file must have and the properties it does
 have.
 
 ```console
-$ archie trace src/work/people/team/teammate.md
+$ arky trace src/work/people/team/teammate.md
 ```
 
 Configuration names which properties cascade at all, as a list holding `area`,
 `client`, and `role`. See [Configuration](../reference/config.md) for that key,
 [Validation rules](../reference/validation-rules.md) for the message each rule
-prints, and [archie trace](../reference/cli/trace.md) for the command.
+prints, and [arky trace](../reference/cli/trace.md) for the command.
 
 ## The organization it serves
 

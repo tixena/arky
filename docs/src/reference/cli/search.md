@@ -1,11 +1,11 @@
-# archie search
+# arky search
 
-`archie search` matches a pattern against documents in a corpus.
+`arky search` matches a pattern against documents in a corpus.
 
 ## Synopsis
 
 ```console
-$ archie search folder/ -gi "[0-9]?[a-z]*"
+$ arky search folder/ -gi "[0-9]?[a-z]*"
 ```
 
 Takes a path to search under and a pattern to match. *The flags, and the rest of
@@ -16,9 +16,9 @@ the option set, are not yet specified.*
 Search runs over document bodies, over frontmatter when frontmatter is specified,
 and over both when clauses are given for both. Matching the two separately
 requires knowing where frontmatter ends and the body begins, which is one of the
-reasons archie carries its own parser.
+reasons arky carries its own parser.
 
-Search is the same expression language as [`archie query`](query.md) with a
+Search is the same expression language as [`arky query`](query.md) with a
 default stage that matches body text; frontmatter and body clauses combine the
 way any other clauses do.
 
@@ -40,7 +40,7 @@ command.
 
 ## Related
 
-- [archie query](query.md) — the expression language.
+- [arky query](query.md) — the expression language.
 - [Query grammar](../query-grammar.md) — search as a default stage of that
   language.
 - [Command-line interface](index.md) — global options and the command table.

@@ -1,6 +1,6 @@
 # Documents and schemas
 
-archie's two core objects are the markdown document and the schema. Neither is a
+arky's two core objects are the markdown document and the schema. Neither is a
 file. A file on disk is one way a document can be stored and one place a schema
 can be written down, but the engine works on the objects, not on the bytes.
 
@@ -20,46 +20,46 @@ cut into one piece per line, each with a `continues` that says whether the node
 goes on to the next line, from the previous one, or both. A code block holds its
 language and its args, read as TOML when they can be and kept as written
 otherwise. An extension can give any markdown node a type of its own. The full
-grammar is in `crates/archie-core/GRAMMAR.md`.
+grammar is in `crates/arky-core/GRAMMAR.md`.
 
 *What identifies a document that has no path is not yet specified.*
 
 ## The frontmatter engine is the foundation
 
-Frontmatter handling is what the rest of archie stands on. Validating reads and
+Frontmatter handling is what the rest of arky stands on. Validating reads and
 checks fields; repairing reads and modifies them; classifying an unprocessed
 capture writes them from scratch; tracing reads them up a chain of folders;
 exporting serializes them. The smallest useful case is a query over one field:
 
 ```console
-$ archie query 'tags contains "rule"' .grit/patterns/
+$ arky query 'tags contains "rule"' .grit/patterns/
 ```
 
 This walks a directory, parses each file's frontmatter, evaluates one expression
 against it, and prints the paths that match — no configuration file, no rules, no
 inheritance.
 
-archie ships as a Cargo workspace of library crates with a thin command-line crate
+arky ships as a Cargo workspace of library crates with a thin command-line crate
 on top, rather than as a single program with internal modules.
 
 *Which crates the workspace holds is not yet specified.*
 
-## archie writes its own parser
+## arky writes its own parser
 
-archie parses markdown with a parser of its own, covering both halves of a
+arky parses markdown with a parser of its own, covering both halves of a
 document: the YAML or TOML of the frontmatter and the markdown of the body.
 General-purpose crates are reference material rather than dependencies.
 
 The parser has to serve searches that run over document bodies, over frontmatter
 when frontmatter is specified, and over both when clauses are given for both — one
-of the reasons the parser is archie's own code.
+of the reasons the parser is arky's own code.
 
 *Performance goals for the parser are not yet specified, and this book makes no
 claim about how fast anything is.*
 
 ## Whose formatting wins
 
-archie writes each construct in a form of its own, whatever form the file used:
+arky writes each construct in a form of its own, whatever form the file used:
 `#` headings, `-` bullets, `*emphasis*`, `***` for a thematic break, backtick
 fences, inline links. It uses another form only where its own would read back as
 another tree, so a file read and written twice gives the same text the second
@@ -70,8 +70,8 @@ Writing a canonical form — a fixed key order, no preserved comments, one spell
 for everything — is remargin's write path. Within a corpus that remargin governs,
 every resource still has to satisfy the lint rules configuration allows.
 
-The form archie writes for each construct is stated in the "Writing" section of
-`crates/archie-core/GRAMMAR.md`. *The list of lint rules configuration may allow
+The form arky writes for each construct is stated in the "Writing" section of
+`crates/arky-core/GRAMMAR.md`. *The list of lint rules configuration may allow
 is not yet specified.*
 
 ## What schemas cover
@@ -89,20 +89,20 @@ resource type — is taken up on
 
 ## Documents that are not markdown
 
-Images and documents in Portable Document Format are resources archie can hand
+Images and documents in Portable Document Format are resources arky can hand
 back:
 
 ```console
-$ archie get folder/image.png
-$ archie get folder/doc.pdf
+$ arky get folder/image.png
+$ arky get folder/doc.pdf
 ```
 
-*What archie does with a non-markdown file beyond returning it is not yet
+*What arky does with a non-markdown file beyond returning it is not yet
 specified.*
 
 ## Related
 
-- [archie get](../reference/cli/get.md) — retrieving a resource.
-- [archie query](../reference/cli/query.md) — querying frontmatter.
+- [arky get](../reference/cli/get.md) — retrieving a resource.
+- [arky query](../reference/cli/query.md) — querying frontmatter.
 - [Shape language](../reference/shape-language.md) — writing a shape down.
 - [Design status](../design-status.md) — the open questions here.

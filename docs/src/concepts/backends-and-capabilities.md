@@ -1,13 +1,13 @@
 # Backends and capabilities
 
-A version of a document has to be kept somewhere. archie puts that "somewhere"
+A version of a document has to be kept somewhere. arky puts that "somewhere"
 behind an abstraction, so the engine tracks versions without the caller knowing
 whether the bytes end up in a folder on a disk, in a git repository, or in an
 object store on someone else's servers.
 
 ## Version tracking is backend-agnostic
 
-archie tracks versions in a way abstracted far enough that no caller has to worry
+arky tracks versions in a way abstracted far enough that no caller has to worry
 about whether the backend is a filesystem, git, Amazon Web Services' S3, Minio,
 MongoDB, or any other store. Those five are examples rather than a supported list:
 a filesystem is a plain directory tree; git is a version-control system that

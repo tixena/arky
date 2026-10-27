@@ -1,13 +1,13 @@
-# archie import
+# arky import
 
-`archie import` pulls items in from a source outside a corpus and writes them
+`arky import` pulls items in from a source outside a corpus and writes them
 into it.
 
 ## Synopsis
 
 ```console
-$ archie import <SOURCE>
-$ archie import google-tasks
+$ arky import <SOURCE>
+$ arky import google-tasks
 ```
 
 `<SOURCE>` is the external source to import from and is required.
@@ -24,14 +24,14 @@ $ archie import google-tasks
 ## Behavior
 
 Items are pulled from the source and written into the target folder, by default
-the inbox — so an import leaves work for [`archie inbox`](inbox.md) to classify
+the inbox — so an import leaves work for [`arky inbox`](inbox.md) to classify
 and file rather than filing it directly.
 
 ## Examples
 
 ```console
-$ archie import google-tasks
-$ archie import google-tasks --dry-run --target inbox/
+$ arky import google-tasks
+$ arky import google-tasks --dry-run --target inbox/
 ```
 
 ## Not yet specified
@@ -48,7 +48,7 @@ See [Design status](../../design-status.md) for the open questions here.
 
 ## Related
 
-- [archie inbox](inbox.md) — what processes the items an import leaves behind.
+- [arky inbox](inbox.md) — what processes the items an import leaves behind.
 - [Configuration](../config.md) — the inbox path that supplies the default
   target.
 - [Command-line interface](index.md) — global options and the command table.

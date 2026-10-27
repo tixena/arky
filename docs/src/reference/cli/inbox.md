@@ -1,12 +1,12 @@
-# archie inbox
+# arky inbox
 
-`archie inbox` reads the captures dropped into a corpus without being filed, asks
+`arky inbox` reads the captures dropped into a corpus without being filed, asks
 a language model to classify each one, and proposes where each should go.
 
 ## Synopsis
 
 ```console
-$ archie inbox [PATH]
+$ arky inbox [PATH]
 ```
 
 `[PATH]` is the inbox path; optional, defaulting from the configuration file.
@@ -33,12 +33,12 @@ captures, imported items, and notes filed later; each area may have its own.
 ## Examples
 
 ```console
-$ archie inbox src/inbox/ --dry-run
+$ arky inbox src/inbox/ --dry-run
 ```
 
 The interactive screen:
 ```console
-$ archie inbox
+$ arky inbox
 Processing: src/inbox/quick_note.md
 
 Content:
@@ -62,7 +62,7 @@ The run stops until one of the five letters is given. The same flow also propose
 the observations and relations found in a capture's text:
 
 ```console
-$ archie inbox
+$ arky inbox
 Processing: src/inbox/meeting_notes.md
 
 AI Proposal:
@@ -97,7 +97,7 @@ See [Design status](../../design-status.md) for the open questions here.
 
 ## Related
 
-- [archie import](import.md) — the other route items reach the inbox by.
-- [archie check](check.md) — the `inbox-raw` rule.
+- [arky import](import.md) — the other route items reach the inbox by.
+- [arky check](check.md) — the `inbox-raw` rule.
 - [Configuration](../config.md) — the inbox path, the provider, and the model.
 - [Command-line interface](index.md) — global options and the command table.

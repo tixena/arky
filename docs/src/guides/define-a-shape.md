@@ -1,12 +1,12 @@
 # Define a shape
 
 A *shape* is your description of what a markdown document, or one part of a
-document, has to look like. archie's linter checks documents against shapes, and
-the shapes belong to whoever writes them rather than to archie.
+document, has to look like. arky's linter checks documents against shapes, and
+the shapes belong to whoever writes them rather than to arky.
 
 To declare what a `person` or a `project` document must carry, start from
 [Enforce resource types](enforce-resource-types.md) instead: resource types are
-declared by remargin, and archie enforces them.
+declared by remargin, and arky enforces them.
 
 ## Step 1: decide what the shape governs
 
@@ -28,7 +28,7 @@ The mode decides what happens to everything the shape did not mention.
 - **Loose** lets that content through. Choose it when the shape is a floor rather
   than a boundary.
 
-There is no third mode. archie never makes a document validate by trimming it: a
+There is no third mode. arky never makes a document validate by trimming it: a
 document is accepted as it stands or reported as failing.
 
 *Which mode applies when a shape declares none, and whether the mode belongs to
@@ -53,16 +53,16 @@ See [Shape language](../reference/shape-language.md).
 ## Step 4: run the linter against the shape
 
 ```console
-$ archie lint folder/
-$ archie check src/work/
+$ arky lint folder/
+$ arky check src/work/
 ```
 
 Both spellings name the validation run; every option is written for `check`. See
 [Lint a vault](lint-a-vault.md) for the run itself and
-[archie check](../reference/cli/check.md) for the option table.
+[arky check](../reference/cli/check.md) for the option table.
 
 *What the linter prints when a document fails a shape is not yet specified.* The
-messages archie specifies today belong to the fixed rule catalog on
+messages arky specifies today belong to the fixed rule catalog on
 [Validation rules](../reference/validation-rules.md).
 
 ## Related
@@ -75,5 +75,5 @@ messages archie specifies today belong to the fixed rule catalog on
 - [Enforce resource types](enforce-resource-types.md) — the same machinery from
   remargin's side.
 - [Lint a vault](lint-a-vault.md) — running the check and reading its report.
-- [A first session with archie](../tutorial/first-session.md) — the same steps
+- [A first session with arky](../tutorial/first-session.md) — the same steps
   front to back.

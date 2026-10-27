@@ -1,11 +1,11 @@
-# archie ls
+# arky ls
 
-`archie ls` lists the contents of a corpus.
+`arky ls` lists the contents of a corpus.
 
 ## Synopsis
 
 ```console
-$ archie ls
+$ arky ls
 ```
 
 *Arguments and options are not yet specified.*
@@ -16,7 +16,7 @@ $ archie ls
   resource's type and other frontmatter values.
 - Whether a listing recurses.
 - Whether non-markdown files are listed alongside markdown ones.
-- Whether the ignore list in `archie.toml` applies.
+- Whether the ignore list in `arky.toml` applies.
 - What happens when no path is given.
 - Output and exit codes.
 
@@ -25,9 +25,9 @@ command.
 
 ## Related
 
-- [archie get](get.md) — retrieving what a listing names.
-- [archie query](query.md) — selecting documents by an expression rather than by
+- [arky get](get.md) — retrieving what a listing names.
+- [arky query](query.md) — selecting documents by an expression rather than by
   location.
-- [archie and remargin](../../concepts/archie-and-remargin.md) — the overlap
-  between archie's verbs and remargin's operations.
+- [arky and remargin](../../concepts/arky-and-remargin.md) — the overlap
+  between arky's verbs and remargin's operations.
 - [Command-line interface](index.md) — global options and the command table.

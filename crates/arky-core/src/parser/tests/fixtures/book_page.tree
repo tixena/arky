@@ -1,0 +1,109 @@
+Document
+  MarkdownBlock
+    Section
+      Heading
+        Text "arky ls"
+      Paragraph
+        Line
+          Code "arky ls"
+          Text " lists the contents of a corpus."
+      Section
+        Heading
+          Text "Synopsis"
+        CodeBlock language="console" value="$ arky ls"
+        Paragraph
+          Line
+            Emphasis
+              Text "Arguments and options are not yet specified."
+      Section
+        Heading
+          Text "Not yet specified"
+        List
+          Item
+            MarkdownBlock
+              Section
+                Paragraph
+                  Line
+                    Text "What a row of the listing carries: a path alone, or a path together with the"
+                  Line
+                    Text "resource's type and other frontmatter values."
+          Item
+            MarkdownBlock
+              Section
+                Paragraph
+                  Line
+                    Text "Whether a listing recurses."
+          Item
+            MarkdownBlock
+              Section
+                Paragraph
+                  Line
+                    Text "Whether non-markdown files are listed alongside markdown ones."
+          Item
+            MarkdownBlock
+              Section
+                Paragraph
+                  Line
+                    Text "Whether the ignore list in "
+                    Code "arky.toml"
+                    Text " applies."
+          Item
+            MarkdownBlock
+              Section
+                Paragraph
+                  Line
+                    Text "What happens when no path is given."
+          Item
+            MarkdownBlock
+              Section
+                Paragraph
+                  Line
+                    Text "Output and exit codes."
+        Paragraph
+          Line
+            Text "See "
+            Link form=Markdown target="../../design-status.md"
+              Text "Design status"
+            Text " for the open questions around this"
+          Line
+            Text "command."
+      Section
+        Heading
+          Text "Related"
+        List
+          Item
+            MarkdownBlock
+              Section
+                Paragraph
+                  Line
+                    Link form=Markdown target="get.md"
+                      Text "arky get"
+                    Text " — retrieving what a listing names."
+          Item
+            MarkdownBlock
+              Section
+                Paragraph
+                  Line
+                    Link form=Markdown target="query.md"
+                      Text "arky query"
+                    Text " — selecting documents by an expression rather than by"
+                  Line
+                    Text "location."
+          Item
+            MarkdownBlock
+              Section
+                Paragraph
+                  Line
+                    Link form=Markdown target="../../concepts/arky-and-remargin.md"
+                      Text "arky and remargin"
+                    Text " — the overlap"
+                  Line
+                    Text "between arky's verbs and remargin's operations."
+          Item
+            MarkdownBlock
+              Section
+                Paragraph
+                  Line
+                    Link form=Markdown target="index.md"
+                      Text "Command-line interface"
+                    Text " — global options and the command table."

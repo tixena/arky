@@ -1,13 +1,13 @@
-# archie trace
+# arky trace
 
-`archie trace` prints the chain of inherited properties for one file: which
+`arky trace` prints the chain of inherited properties for one file: which
 folder index files above it declare properties, what those properties are, and
 whether the file carries them.
 
 ## Synopsis
 
 ```console
-$ archie trace <FILE>
+$ arky trace <FILE>
 ```
 
 `<FILE>`, the file whose inheritance chain to print, is required.
@@ -29,7 +29,7 @@ inherited one, and a differing value for an inherited property fails validation.
 ## Example
 
 ```console
-$ archie trace src/work/people/team/teammate.md
+$ arky trace src/work/people/team/teammate.md
 Inheritance chain for: src/work/people/team/teammate.md
 
 src/index.md
@@ -68,6 +68,6 @@ See [Design status](../../design-status.md) for the open questions here.
 ## Related
 
 - [Inheritance](../../concepts/inheritance.md) — the mechanism this displays.
-- [archie check](check.md) — the `inheritance` rule.
-- [archie init](init.md) — creates a missing folder index file.
+- [arky check](check.md) — the `inheritance` rule.
+- [arky init](init.md) — creates a missing folder index file.
 - [Command-line interface](index.md) — global options and the command table.

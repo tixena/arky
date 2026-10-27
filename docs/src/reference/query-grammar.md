@@ -2,20 +2,20 @@
 
 *The expression language is under active design.*
 
-One expression language serves three entry points. [archie query](cli/query.md)
-runs an expression over a set of documents, [archie search](cli/search.md)
+One expression language serves three entry points. [arky query](cli/query.md)
+runs an expression over a set of documents, [arky search](cli/search.md)
 matches a pattern against them, and the `--path` option of
-[archie write](cli/write.md) addresses a part of one document. The verb fixes
+[arky write](cli/write.md) addresses a part of one document. The verb fixes
 what the expression runs against — a set of documents, or one document — and what
 comes out.
 
 ## The expressions
 
 ```console
-$ archie query 'tags contains "rule"' .grit/patterns/
-$ archie query --exp='type=issue'
-$ archie write folder/file.md --path='# ##["Specs"][2]' --append --from-body='path-to-file.txt'
-$ archie search folder/ -gi "[0-9]?[a-z]*"
+$ arky query 'tags contains "rule"' .grit/patterns/
+$ arky query --exp='type=issue'
+$ arky write folder/file.md --path='# ##["Specs"][2]' --append --from-body='path-to-file.txt'
+$ arky search folder/ -gi "[0-9]?[a-z]*"
 ```
 
 ## The document model
@@ -23,7 +23,7 @@ $ archie search folder/ -gi "[0-9]?[a-z]*"
 A document is frontmatter, which is a mapping, plus a body tree. In the body tree
 a heading nests the blocks under it — paragraphs, lists and their items, tables,
 code fences, remargin comment blocks — until the next heading of equal or higher
-level. archie parses both the frontmatter and the markdown body with its own
+level. arky parses both the frontmatter and the markdown body with its own
 parser.
 
 ## Selecting
@@ -68,8 +68,8 @@ specified.*
 
 ## Formatting
 
-archie can preserve an existing YAML formatting rather than rewriting it.
-remargin's write path writes archie's canonical form.
+arky can preserve an existing YAML formatting rather than rewriting it.
+remargin's write path writes arky's canonical form.
 
 ## Not yet specified
 
@@ -103,6 +103,6 @@ language.
 
 ## Related
 
-- [archie query](cli/query.md), [archie search](cli/search.md), and
-  [archie write](cli/write.md) — the three commands the language serves.
+- [arky query](cli/query.md), [arky search](cli/search.md), and
+  [arky write](cli/write.md) — the three commands the language serves.
 - [Output formats](output-formats.md) — what a run prints.

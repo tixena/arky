@@ -1,13 +1,13 @@
-# archie fix
+# arky fix
 
-`archie fix` repairs the findings a validation run reports that can be repaired
+`arky fix` repairs the findings a validation run reports that can be repaired
 without a person deciding anything. It is the only command that changes files
 without being told what content to write.
 
 ## Synopsis
 
 ```console
-$ archie fix [PATH] [--store <STORE>]
+$ arky fix [PATH] [--store <STORE>]
 ```
 
 `[PATH]` is the path to repair; it is optional. The repair of expired locks is
@@ -40,20 +40,20 @@ property, an invalid `type` value, and the classification of an inbox file.
 
 ## Expired locks
 
-A save holds the file `<file>.archie-lock` beside a document while it writes, or
-the object `<key>.archie-lock` in a MinIO bucket. A save that stops before it gives
-the lock back, such as an archie that is killed, leaves it behind. The next save of
+A save holds the file `<file>.arky-lock` beside a document while it writes, or
+the object `<key>.arky-lock` in a MinIO bucket. A save that stops before it gives
+the lock back, such as an arky that is killed, leaves it behind. The next save of
 that document removes it once it has expired, but the lock of a document nobody
 saves again stays.
 
-`archie fix` removes each lock under `PATH` that is older than `expires_seconds`
-of the `[lock]` table of [`archie.toml`](../config.md), and only while it is still
+`arky fix` removes each lock under `PATH` that is older than `expires_seconds`
+of the `[lock]` table of [`arky.toml`](../config.md), and only while it is still
 the lock it found: a lock that another save replaced in the meantime stays. A lock
 that has not expired stays. A file whose name ends in `.lock` but not in
-`.archie-lock`, such as `Cargo.lock`, is never touched.
+`.arky-lock`, such as `Cargo.lock`, is never touched.
 
 `PATH` is a folder, the current folder when it is left out. With a MinIO store it
-is a path of the store as `archie write --store minio:` takes it, and the whole
+is a path of the store as `arky write --store minio:` takes it, and the whole
 prefix when it is left out.
 
 | `--store` | What it does |
@@ -69,26 +69,26 @@ when no lock had expired.
 
 - On the file system, the lock's path below the folder searched, after `PATH` as
   the command line gave it, or alone when `PATH` was left out.
-- In a MinIO store, the lock's path in the store, as `archie write --store minio:`
+- In a MinIO store, the lock's path in the store, as `arky write --store minio:`
   names files.
 
 ```console
 $ ls notes
-report.md  report.md.archie-lock  media
-$ archie fix notes
-notes/report.md.archie-lock
+report.md  report.md.arky-lock  media
+$ arky fix notes
+notes/report.md.arky-lock
 $ echo $?
 0
-$ archie fix notes
-$ archie fix --store minio:archie/vault
-notes/report.md.archie-lock
-$ archie fix --store mongodb:notes/docs
-archie: mongodb:notes/docs keeps no locks: fix takes the file system or --store minio:<bucket>
+$ arky fix notes
+$ arky fix --store minio:arky/vault
+notes/report.md.arky-lock
+$ arky fix --store mongodb:notes/docs
+arky: mongodb:notes/docs keeps no locks: fix takes the file system or --store minio:<bucket>
 $ echo $?
 2
 ```
 
-An error is one line on standard error: `archie: `, the path or the store as the
+An error is one line on standard error: `arky: `, the path or the store as the
 command line gave it, and what failed.
 
 ### Exit codes
@@ -97,26 +97,26 @@ command line gave it, and what failed.
 |---|---|
 | 0 | Success: each lock that had expired is removed. |
 | 2 | The command line is wrong: a `PATH` that is not a folder, a `--store mongodb:` value, or a `--store` value of any other shape. |
-| 3 | The configuration is wrong: `archie.toml`, a variable the MinIO store reads, or a MinIO store that is not built into this archie. |
+| 3 | The configuration is wrong: `arky.toml`, a variable the MinIO store reads, or a MinIO store that is not built into this arky. |
 | 4 | The store failed: a MinIO server that cannot be reached or refuses the keys, or a file system error. A failure to write standard output is code 4 too. |
 
 ## Behavior
 
-Files are never modified without an explicit repair. [`archie check`](check.md)
+Files are never modified without an explicit repair. [`arky check`](check.md)
 reports; only this command writes.
 
 ## Examples
 
 ```console
-$ archie fix notes
-$ archie fix --store minio:archie/vault
+$ arky fix notes
+$ arky fix --store minio:arky/vault
 ```
 
 Not built:
 
 ```console
-$ archie fix --dry-run
-$ archie fix src/work/ --rule inheritance
+$ arky fix --dry-run
+$ arky fix src/work/ --rule inheritance
 ```
 
 ## Not yet specified
@@ -139,7 +139,7 @@ See [Design status](../../design-status.md) for the open questions here.
 
 ## Related
 
-- [archie check](check.md) — the validation run this repairs the findings of.
+- [arky check](check.md) — the validation run this repairs the findings of.
 - [Validation rules](../validation-rules.md) — which rules are repairable.
 - [Shape language](../shape-language.md) — the schemas that decide what is
   repairable.

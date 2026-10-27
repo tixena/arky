@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Gate for the archie book. Builds it and checks the structure of its pages.
+# Gate for the arky book. Builds it and checks the structure of its pages.
 # Run from anywhere: bash scripts/docs-check.sh
 
 set -uo pipefail

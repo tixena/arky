@@ -93,11 +93,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "archie"
+name = "arky"
 version = "0.1.0"
 dependencies = [
- "archie-core",
- "archie-store",
+ "arky-core",
+ "arky-store",
  "assert_cmd",
  "clap",
  "mongodb",
@@ -108,7 +108,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "archie-core"
+name = "arky-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
@@ -130,10 +130,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "archie-store"
+name = "arky-store"
 version = "0.1.0"
 dependencies = [
- "archie-core",
+ "arky-core",
  "bson",
  "chrono",
  "mongodb",

@@ -1,6 +1,6 @@
 # Configuration
 
-archie is configured by `archie.toml`, at the root of the repository it governs.
+arky is configured by `arky.toml`, at the root of the repository it governs.
 The file adjusts which rules run and how they behave; everything else a corpus
 must satisfy comes from the shapes that govern its documents.
 
@@ -104,7 +104,7 @@ validate_relation_types = "info"         # off, info, warn, error
 ## The tables
 
 **`[vault]`** — `root` names the folder a corpus lives in, and `ignore` lists
-folder names a run skips. Nothing about archie requires Obsidian, though the
+folder names a run skips. Nothing about arky requires Obsidian, though the
 default ignore list skips its folder. *Whether the table keeps this name is not
 yet specified.*
 
@@ -127,7 +127,7 @@ document as archived, and `folder_name` names the folder an archived document
 belongs in. Both are read by the `archive-placement` rule.
 
 **`[inbox]`** — `path` names the inbox folder, and `allow_raw` permits files
-there to have no frontmatter. See [archie inbox](cli/inbox.md).
+there to have no frontmatter. See [arky inbox](cli/inbox.md).
 
 **`[assets]`** — the file extensions a run treats as assets rather than as
 documents, read by `orphaned-assets`.
@@ -138,7 +138,7 @@ another save's lock before it is rejected, 2 by default. Each is a whole number
 of seconds above zero, and these two keys are the only ones the table takes: any
 other key, or a value that is not a whole number above zero, exits with code 3.
 The file store and the MinIO store take these settings; see
-[archie write](cli/write.md). This table is the only one archie reads today; it
+[arky write](cli/write.md). This table is the only one arky reads today; it
 leaves the others alone.
 
 **`[ai]`** — the provider and model used when a language model classifies inbox
@@ -160,20 +160,20 @@ Settings take precedence in this order, highest first:
 
 1. Command-line options
 2. Environment variables
-3. `archie.toml`
+3. `arky.toml`
 4. Built-in defaults
 
 ## Environment variables
 
 | Variable | What it does |
 |---|---|
-| `ARCHIE_CONFIG` | Path to the configuration file |
-| `ARCHIE_ROOT` | Path to a corpus root |
+| `ARKY_CONFIG` | Path to the configuration file |
+| `ARKY_ROOT` | Path to a corpus root |
 | `ANTHROPIC_API_KEY` | Key for classifying inbox captures with a language model |
 | `OPENAI_API_KEY` | The same, for the other provider |
 | `NO_COLOR` | Turns colored output off |
 
-The command line takes a configuration path directly as well, with `archie.toml`
+The command line takes a configuration path directly as well, with `arky.toml`
 as its default.
 
 ## Extending the rule set

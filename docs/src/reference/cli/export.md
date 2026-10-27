@@ -1,12 +1,12 @@
-# archie export
+# arky export
 
-`archie export` serializes a corpus as JavaScript Object Notation (JSON) for a
+`arky export` serializes a corpus as JavaScript Object Notation (JSON) for a
 language-model agent or other tooling to read.
 
 ## Synopsis
 
 ```console
-$ archie export [PATH]
+$ arky export [PATH]
 ```
 
 `[PATH]` is the path to export; it is optional.
@@ -30,12 +30,12 @@ edge carrying its type.
 ## Example
 
 ```console
-$ archie export src/work/ --only-metadata
+$ arky export src/work/ --only-metadata
 ```
 
 The export document:
 ```console
-$ archie export
+$ arky export
 {
   "files": [
     {
@@ -71,7 +71,7 @@ to a file.
 - Whether the output goes to standard output or to a file, what happens when both
   options above are given, and whether an export can be filtered by type.
 - Whether serializing a corpus is a command or an engine capability remargin
-  reaches through, and whether archie builds the graph the `graph` object carries.
+  reaches through, and whether arky builds the graph the `graph` object carries.
 - Exit codes.
 
 See [Design status](../../design-status.md) for the open questions here.
@@ -82,5 +82,5 @@ See [Design status](../../design-status.md) for the open questions here.
   relations, and the graph the export carries.
 - [Output formats](../output-formats.md) — the validation run's formats, which
   are separate from this command.
-- [Use archie from an agent](../../guides/use-from-an-agent.md) — the audience.
+- [Use arky from an agent](../../guides/use-from-an-agent.md) — the audience.
 - [Command-line interface](index.md) — global options and the command table.

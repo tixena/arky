@@ -1,6 +1,6 @@
 # Link resources
 
-`archie link` finds plain-text mentions of a resource across a folder and turns
+`arky link` finds plain-text mentions of a resource across a folder and turns
 them into links to that resource. This guide covers preparing the resources,
 running the command, reading what it produced, and undoing it.
 
@@ -19,7 +19,7 @@ yet specified.*
 ## Step 2: run it over a folder
 
 ```console
-$ archie link folder/
+$ arky link folder/
 ```
 
 Every markdown file under `folder/` is scanned and every qualifying mention is
@@ -45,17 +45,17 @@ comment blocks among them, because those are fenced blocks — inline code spans
 existing markdown links and wiki-links, raw web addresses, and a resource's own
 document.
 
-Telling those regions apart is what archie's own parser is for; a structural move
+Telling those regions apart is what arky's own parser is for; a structural move
 needs the same discrimination when it rewrites inbound links.
 
 ## Step 4: undo the run
 
 ```console
-$ archie unlink folder/
+$ arky unlink folder/
 ```
 
-`archie unlink` strips exactly the links a link run produces: a link whose
-display text is a collision-free mention and whose target is what `archie link`
+`arky unlink` strips exactly the links a link run produces: a link whose
+display text is a collision-free mention and whose target is what `arky link`
 would emit. A link it could not have produced is left alone.
 
 ## Why this is a change like any other
@@ -78,10 +78,10 @@ See [Design status](../design-status.md) for the open questions here.
 
 ## Related
 
-- [archie link](../reference/cli/link.md) — the command reference.
+- [arky link](../reference/cli/link.md) — the command reference.
 - [Change objects](../reference/change-objects.md) — the model this command
   follows in miniature.
 - [Move and merge with link integrity](move-and-merge-with-links.md) — the other
   operation that rewrites references.
-- [A first session with archie](../tutorial/first-session.md) — the same steps
+- [A first session with arky](../tutorial/first-session.md) — the same steps
   front to back.

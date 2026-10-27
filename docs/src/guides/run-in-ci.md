@@ -1,25 +1,25 @@
-# Run archie in continuous integration
+# Run arky in continuous integration
 
 Continuous integration is the practice of running checks automatically on every
-change to a repository. archie is built for it: a validation run prints a
+change to a repository. arky is built for it: a validation run prints a
 machine-readable report and returns a process exit code that decides whether the
 build fails.
 
 ## Step 1: run the validation and capture the report
 
 ```console
-$ archie check --format json > report.json
+$ arky check --format json > report.json
 ```
 
 Three formats exist: text for a person at a terminal, JavaScript Object Notation
 (JSON) for another program, and markdown for a report to commit or to paste into
 a review. A build step wants JSON; a step that publishes a report may want
-markdown. See [archie check](../reference/cli/check.md).
+markdown. See [arky check](../reference/cli/check.md).
 
 ## Step 2: choose what makes the build fail
 
 ```console
-$ archie check --format json --fail-on warning > report.json
+$ arky check --format json --fail-on warning > report.json
 ```
 
 `--fail-on` takes `error`, `warning`, or `any`, and defaults to `error`. It
@@ -65,8 +65,8 @@ creating frontmatter.*
 ## Step 5: scope the run to what matters
 
 ```console
-$ archie check src/work/ --rule frontmatter --rule type
-$ archie check --ignore templates
+$ arky check src/work/ --rule frontmatter --rule type
+$ arky check --ignore templates
 ```
 
 A path argument limits the run to part of a vault, `--rule` limits it to named
@@ -76,9 +76,9 @@ rather than on the command line — see [Configuration](../reference/config.md).
 
 ## Not yet specified
 
-- How a build machine obtains archie: no published package, release artifact, or
+- How a build machine obtains arky: no published package, release artifact, or
   container image is defined, so no workflow file can be written yet.
-- Whether archie ships an example workflow, a pre-commit hook, and shell
+- Whether arky ships an example workflow, a pre-commit hook, and shell
   completions.
 - Exit codes for the other commands: listing, retrieving, linting, linking,
   initializing, searching, writing, and querying have none attached.
@@ -97,5 +97,5 @@ See [Design status](../design-status.md) for the open questions here.
 - [Output formats](../reference/output-formats.md) — the JSON object and the
   other two formats in full.
 - [Lint a vault](lint-a-vault.md) — the same run at a terminal.
-- [archie check](../reference/cli/check.md) — the option table.
+- [arky check](../reference/cli/check.md) — the option table.
 - [Configuration](../reference/config.md) — settings that hold for every run.

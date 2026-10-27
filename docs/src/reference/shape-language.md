@@ -1,7 +1,7 @@
 # Shape language
 
 A *shape* is a user-written description of what a markdown document, or a part of
-one, must look like. archie's linter checks documents against shapes.
+one, must look like. arky's linter checks documents against shapes.
 
 ## What a shape governs
 
@@ -10,9 +10,9 @@ fragment. A shape can require frontmatter or not require it: whether a document
 needs frontmatter at all, and which properties it must carry, follows from the
 shape that governs it rather than from a fixed list.
 
-The linter and the shapes it enforces belong to archie. The resource types a
+The linter and the shapes it enforces belong to arky. The resource types a
 shape is written against, and the actions declared on them, belong to remargin;
-archie provides the means to enforce them. See
+arky provides the means to enforce them. See
 [Shapes, schemas, and resource types](../concepts/shapes-schemas-resource-types.md).
 
 ## Strict and loose
@@ -23,7 +23,7 @@ A shape has two modes.
 - **Loose** lets that content through.
 
 There is no stripping mode. A document is either accepted as it stands or
-reported as failing; archie never silently removes the parts a shape does not
+reported as failing; arky never silently removes the parts a shape does not
 mention.
 
 *Which mode applies when a shape declares none, and whether the mode belongs to

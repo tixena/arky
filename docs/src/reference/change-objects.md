@@ -1,6 +1,6 @@
 # Change objects
 
-A *change object* is archie's representation of one edit to a resource. Every
+A *change object* is arky's representation of one edit to a resource. Every
 change produces one, and the model is the one git uses: a base resource plus a
 chain of changes applied in sequence.
 
@@ -16,7 +16,7 @@ The model holds because the content is linted markdown with a known shape, so it
 rests on the linter and on the [shape language](shape-language.md).
 
 Every write through remargin is such a change: remargin's whole write path goes
-through the model and no write bypasses it. The change model is archie's; the
+through the model and no write bypasses it. The change model is arky's; the
 write path is remargin's.
 
 ## Structural operations as transactions
@@ -35,11 +35,11 @@ what it rewrote, and what a dry run does, are not yet specified.* See
 
 ## Linking as the worked example
 
-[archie link](cli/link.md) is the model applied to one kind of edit, in the
+[arky link](cli/link.md) is the model applied to one kind of edit, in the
 small. Linking is additive — a link only wraps text that is already present, so
 stripping every injected link reproduces the file byte for byte — it is
-idempotent, and `archie unlink` is its exact inverse, removing only a link that
-`archie link` would have produced. Additive and exactly reversible is what a
+idempotent, and `arky unlink` is its exact inverse, removing only a link that
+`arky link` would have produced. Additive and exactly reversible is what a
 change object has to be.
 
 ## Where versions live
@@ -63,7 +63,7 @@ may report a capability as not implemented. See
   modification is a single change object covering every document touched or one
   per document. See [Query grammar](query-grammar.md).
 - **What happens when replay is not byte-identical** — when a document has been
-  edited outside archie, for instance.
+  edited outside arky, for instance.
 
 See [Design status](../design-status.md) for the open questions around changes.
 

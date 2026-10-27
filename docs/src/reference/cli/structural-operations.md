@@ -2,7 +2,7 @@
 
 Moving a folder, renaming a document, archiving something, and merging one folder
 into another change the shape of a corpus rather than the contents of one
-document. archie performs them as integral transactions that keep links valid by
+document. arky performs them as integral transactions that keep links valid by
 construction, rather than validating and repairing afterwards.
 
 *No command spelling is yet specified for any of them, so this page shows no
@@ -10,7 +10,7 @@ command line.*
 
 ## Behavior
 
-archie holds a corpus as a structured graph, with typed resources and links as
+arky holds a corpus as a structured graph, with typed resources and links as
 first-class edges. A structural operation therefore moves the folder, rewrites
 every inbound link, revalidates the inheritance and the index files, and does all
 of it or none of it. This is a distinct class of operation from the validation
@@ -21,8 +21,8 @@ an editor rather than a checker that flags dangling references afterwards.
 Not every reference is rewritten. Historical spellings, commands quoted inside a
 document, and signed comment blocks whose content must not change are preserved.
 Refusing to rewrite a protected region is the same discrimination
-[`archie link`](link.md) makes when it skips frontmatter, fenced blocks, inline
-code, existing links, and raw web addresses; both rest on archie's own parser
+[`arky link`](link.md) makes when it skips frontmatter, fenced blocks, inline
+code, existing links, and raw web addresses; both rest on arky's own parser
 knowing what those regions are.
 
 ## Merge-move
@@ -63,7 +63,7 @@ operations.
   — the how-to.
 - [Change objects](../change-objects.md) — the transactional model these
   operations generalize into.
-- [archie link](link.md) — the command that rewrites document text without
+- [arky link](link.md) — the command that rewrites document text without
   touching protected regions.
-- [archie rm](rm.md) — removal, which these operations do not cover.
+- [arky rm](rm.md) — removal, which these operations do not cover.
 - [Command-line interface](index.md) — global options and the command table.

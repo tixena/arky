@@ -1,6 +1,6 @@
-# archie write
+# arky write
 
-`archie write` stores a whole document at a path, with every file it embeds, read
+`arky write` stores a whole document at a path, with every file it embeds, read
 from standard input or from a named file in one of four forms: markdown,
 JavaScript Object Notation (JSON), binary, or zip. A second form of the command,
 which writes into the part of one document that a path expression addresses, is
@@ -12,7 +12,7 @@ not yet specified; it is described under
 ### Synopsis
 
 ```console
-$ archie write <PATH> [--allow-missing] [-f, --format <FORMAT>] [--frontmatter <SYNTAX>] [-i, --input <FILE>] [-s, --store <STORE>]
+$ arky write <PATH> [--allow-missing] [-f, --format <FORMAT>] [--frontmatter <SYNTAX>] [-i, --input <FILE>] [-s, --store <STORE>]
 ```
 
 The path is required.
@@ -28,21 +28,21 @@ The path is required.
 | `-i`, `--input <FILE>` | A file of the machine to read the document from, in place of standard input. It is never a path in a store. |
 | `-s`, `--store <STORE>` | The store the document goes to: `minio:<bucket>`, `minio:<bucket>/<prefix>`, or `mongodb:<database>/<collection>`. The file system when it is left out. |
 
-`archie --help` and `archie write --help` print help; `archie --version` prints
+`arky --help` and `arky write --help` print help; `arky --version` prints
 the version.
 
 ### The forms
 
-| Form | What `archie write` reads |
+| Form | What `arky write` reads |
 |---|---|
-| `markdown` from standard input | Markdown text, with YAML or TOML frontmatter. Each embed written as a data URI, as `archie get` writes markdown to standard output, becomes a file. |
+| `markdown` from standard input | Markdown text, with YAML or TOML frontmatter. Each embed written as a data URI, as `arky get` writes markdown to standard output, becomes a file. |
 | `markdown` from `--input FILE` | `FILE`, and each file it embeds, read at its path from `FILE`'s folder. A data URI in `FILE` becomes a file too. |
-| `json` | The tree as one JSON value, as `archie get --format json` writes it. Each data URI becomes a file. |
-| `binary` | The tree and each file it embeds in archie's binary layout, after a header of eight bytes: `archie`, a zero byte, and the version of the model's types, 4. The tree is read in place, as `archie get --format binary` writes it. |
-| `zip` | A zip of `index.md` and each file it embeds at its path, as `archie get --format zip` writes it, or a zip whose one top folder holds them. |
+| `json` | The tree as one JSON value, as `arky get --format json` writes it. Each data URI becomes a file. |
+| `binary` | The tree and each file it embeds in arky's binary layout, after a header of eight bytes: `arky`, a zero byte, and the version of the model's types, 4. The tree is read in place, as `arky get --format binary` writes it. |
+| `zip` | A zip of `index.md` and each file it embeds at its path, as `arky get --format zip` writes it, or a zip whose one top folder holds them. |
 
-Whatever the form, the file stored at the path is archie's form of the document:
-the markdown archie writes for the tree it read, with the frontmatter in the syntax
+Whatever the form, the file stored at the path is arky's form of the document:
+the markdown arky writes for the tree it read, with the frontmatter in the syntax
 `--frontmatter` names. Each file it embeds is stored beside it, at its path from
 the document's folder: `media/logo.png`, embedded by `notes/report.md`, is stored
 at `notes/media/logo.png`, and the stored text names it as `media/logo.png`, with
@@ -62,8 +62,8 @@ A file the document embeds that the bytes do not hold, or that is not beside the
 `--input` file, fails the command with code 1 and stores nothing:
 
 ```console
-$ printf '![Logo](media/none.png)\n' | archie write notes/a.md
-archie: notes/a.md: index.md names media/none.png, and the bundle does not hold it
+$ printf '![Logo](media/none.png)\n' | arky write notes/a.md
+arky: notes/a.md: index.md names media/none.png, and the bundle does not hold it
 ```
 
 An embed whose target leaves the document's folder, such as `![Logo](../logo.png)`,
@@ -73,7 +73,7 @@ written and no file stored for it.
 
 ### Behavior
 
-`archie write` reads all of standard input, or all of the `--input` file and the
+`arky write` reads all of standard input, or all of the `--input` file and the
 files it embeds, and then stores the document those bytes hold. A file already at
 the path is replaced, as a copy replaces its target. A folder on the path that does
 not exist is created.
@@ -84,12 +84,12 @@ first, the same way, and the document last; no other file is touched but the
 document's lock (see [Stores](#stores)). Bytes that do not hold a document in the
 form store nothing.
 
-`archie write` writes nothing to standard output. An error is one line on standard
-error: `archie: `, the path as the command line gave it, and what failed.
+`arky write` writes nothing to standard output. An error is one line on standard
+error: `arky: `, the path as the command line gave it, and what failed.
 
 ```console
-$ echo nope | archie write b.md --format json
-archie: b.md: expected ident at line 1 column 2
+$ echo nope | arky write b.md --format json
+arky: b.md: expected ident at line 1 column 2
 ```
 
 ### Stores
@@ -106,8 +106,8 @@ request's address, `<endpoint>/<bucket>/<key>`, and must already exist.
 
 | Variable | What it holds |
 |---|---|
-| `ARCHIE_MINIO_ENDPOINT` | The address of the MinIO server, such as `http://127.0.0.1:9000`. Required, with no default. |
-| `ARCHIE_MINIO_REGION` | The region the server expects, such as `us-east-1`. Required. |
+| `ARKY_MINIO_ENDPOINT` | The address of the MinIO server, such as `http://127.0.0.1:9000`. Required, with no default. |
+| `ARKY_MINIO_REGION` | The region the server expects, such as `us-east-1`. Required. |
 | `AWS_ACCESS_KEY_ID` | The access key every request is signed with. Required. |
 | `AWS_SECRET_ACCESS_KEY` | The secret key every request is signed with. Required. No output and no error shows it. |
 
@@ -116,36 +116,36 @@ not a store path exits with code 2. A server that cannot be reached, or that
 refuses the keys, exits with code 4.
 
 ```console
-$ export ARCHIE_MINIO_ENDPOINT=http://127.0.0.1:9000 ARCHIE_MINIO_REGION=us-east-1
-$ export AWS_ACCESS_KEY_ID=archie AWS_SECRET_ACCESS_KEY=archie-secret
-$ archie get notes/task.md | archie write notes/task.md --store minio:notes/vault
-$ unset AWS_SECRET_ACCESS_KEY; archie write notes/task.md -s minio:notes/vault < a.md; echo "exit $?"
-archie: AWS_SECRET_ACCESS_KEY is not set: it holds the MinIO secret key
+$ export ARKY_MINIO_ENDPOINT=http://127.0.0.1:9000 ARKY_MINIO_REGION=us-east-1
+$ export AWS_ACCESS_KEY_ID=arky AWS_SECRET_ACCESS_KEY=arky-secret
+$ arky get notes/task.md | arky write notes/task.md --store minio:notes/vault
+$ unset AWS_SECRET_ACCESS_KEY; arky write notes/task.md -s minio:notes/vault < a.md; echo "exit $?"
+arky: AWS_SECRET_ACCESS_KEY is not set: it holds the MinIO secret key
 exit 3
 ```
 
 In the file system and in a MinIO store, a write holds a lock on the document
-while it writes: the file `<file>.archie-lock` beside the document, such as
-`notes/report.md.archie-lock` for `notes/report.md`, or the object at that key. It
+while it writes: the file `<file>.arky-lock` beside the document, such as
+`notes/report.md.arky-lock` for `notes/report.md`, or the object at that key. It
 takes the lock before the first file the document embeds and gives it back after
 the document. A second write of the same document that finds the lock waits 2
 seconds, then exits with code 4 when the lock is still held, having written
 nothing. A lock older than 5 seconds has expired, and the next write of the
 document removes it. The two durations, 5 and 2 seconds, are the defaults of
 `expires_seconds` and `wait_seconds` in the `[lock]` table of
-[`archie.toml`](../config.md).
+[`arky.toml`](../config.md).
 
 ```console
-$ archie write notes/report.md -i draft/report.md; echo "exit $?"
-archie: notes/report.md: the file changed, or a file is already there
+$ arky write notes/report.md -i draft/report.md; echo "exit $?"
+arky: notes/report.md: the file changed, or a file is already there
 exit 4
 ```
 
 With `--store mongodb:<database>/<collection>`, the store is the collection
 `<collection>` of the database `<database>`, on the MongoDB server that the
-environment variable `ARCHIE_MONGODB_URI` names. The command line holds names
+environment variable `ARKY_MONGODB_URI` names. The command line holds names
 only, never an address or a credential. The collection keeps each document, and
-the MinIO bucket that `ARCHIE_MONGODB_BUCKET` names keeps each file a document
+the MinIO bucket that `ARKY_MONGODB_BUCKET` names keeps each file a document
 embeds as the object `files/<sha256>`, where `<sha256>` is the SHA-256 of the
 file's bytes in hexadecimal. A prefix goes before the key: with `notes/mongodb`,
 the file is the object `mongodb/files/<sha256>` of the bucket `notes`. One record
@@ -153,34 +153,34 @@ of the collection `<collection>_files` names each object.
 
 | Variable | What it holds |
 |---|---|
-| `ARCHIE_MONGODB_URI` | The connection string of the MongoDB server, `mongodb://` or `mongodb+srv://`, with the server and its credentials. |
-| `ARCHIE_MONGODB_BUCKET` | The MinIO bucket of the store's files, `<bucket>` or `<bucket>/<prefix>`. |
-| `ARCHIE_MINIO_ENDPOINT`, `ARCHIE_MINIO_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | The MinIO server and its keys, as for `--store minio:`. |
+| `ARKY_MONGODB_URI` | The connection string of the MongoDB server, `mongodb://` or `mongodb+srv://`, with the server and its credentials. |
+| `ARKY_MONGODB_BUCKET` | The MinIO bucket of the store's files, `<bucket>` or `<bucket>/<prefix>`. |
+| `ARKY_MINIO_ENDPOINT`, `ARKY_MINIO_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | The MinIO server and its keys, as for `--store minio:`. |
 
 A missing variable exits with code 3, on one line that names it. An
-`ARCHIE_MONGODB_BUCKET` that is not `<bucket>` or `<bucket>/<prefix>`, or whose
+`ARKY_MONGODB_BUCKET` that is not `<bucket>` or `<bucket>/<prefix>`, or whose
 prefix is not a store path, exits with code 3 too. A server that cannot be
 reached exits with code 4. A write of a document that embeds a file whose
 deletion stopped halfway exits with code 4, naming
-[`archie asset finish-deletions`](asset.md), which finishes that deletion.
+[`arky asset finish-deletions`](asset.md), which finishes that deletion.
 
 ```console
-$ export ARCHIE_MONGODB_URI=mongodb://127.0.0.1:27017 ARCHIE_MONGODB_BUCKET=notes/mongodb
-$ export ARCHIE_MINIO_ENDPOINT=http://127.0.0.1:9000 ARCHIE_MINIO_REGION=us-east-1
-$ export AWS_ACCESS_KEY_ID=archie AWS_SECRET_ACCESS_KEY=archie-secret
-$ archie get notes/task.md | archie write notes/task.md --store mongodb:notes/files
-$ unset ARCHIE_MONGODB_BUCKET; archie write notes/task.md -s mongodb:notes/files < a.md; echo "exit $?"
-archie: ARCHIE_MONGODB_BUCKET is not set: it holds the MinIO bucket of a MongoDB store's files
+$ export ARKY_MONGODB_URI=mongodb://127.0.0.1:27017 ARKY_MONGODB_BUCKET=notes/mongodb
+$ export ARKY_MINIO_ENDPOINT=http://127.0.0.1:9000 ARKY_MINIO_REGION=us-east-1
+$ export AWS_ACCESS_KEY_ID=arky AWS_SECRET_ACCESS_KEY=arky-secret
+$ arky get notes/task.md | arky write notes/task.md --store mongodb:notes/files
+$ unset ARKY_MONGODB_BUCKET; arky write notes/task.md -s mongodb:notes/files < a.md; echo "exit $?"
+arky: ARKY_MONGODB_BUCKET is not set: it holds the MinIO bucket of a MongoDB store's files
 exit 3
 ```
 
-An archie built without its default features has neither the MinIO store nor the
+An arky built without its default features has neither the MinIO store nor the
 MongoDB store, and a `--store minio:` or `--store mongodb:` value exits with code
 3 in it:
 
 ```console
-$ archie write b.md --store minio:notes/drafts < a.md
-archie: minio:notes/drafts: this archie is built without the MinIO store
+$ arky write b.md --store minio:notes/drafts < a.md
+arky: minio:notes/drafts: this arky is built without the MinIO store
 ```
 
 A `--store` value of any other shape is a usage error, code 2.
@@ -192,7 +192,7 @@ A `--store` value of any other shape is a usage error, code 2.
 | 0 | Success. |
 | 1 | The document could not be read or written in the form: not UTF-8, not JSON, not this version of the binary form, or a value the frontmatter syntax cannot hold. Without `--allow-missing`, a file the document embeds that is missing, or an embed that leaves the document's folder. |
 | 2 | The command line is wrong: an unknown option, a missing path, a value an option does not take, or a path that cannot name a file, such as `/`. |
-| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARCHIE_MONGODB_URI` or `ARCHIE_MONGODB_BUCKET` for `--store mongodb:`, or `ARCHIE_MINIO_ENDPOINT` for `--store minio:`, or the store is not built into this archie. |
+| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARKY_MONGODB_URI` or `ARKY_MONGODB_BUCKET` for `--store mongodb:`, or `ARKY_MINIO_ENDPOINT` for `--store minio:`, or the store is not built into this arky. |
 | 4 | The store failed: a file system error, such as a folder that is not writable, a MongoDB or MinIO server that cannot be reached, or a MinIO server that refuses the keys. A failure to read standard input is code 4 too, and so is a write of a document whose lock another write of the same document holds, and a write to a MongoDB store that another write of the same document finished first, which the store refuses with `<path>: the file changed, or a file is already there`. |
 | 6 | No file at the path of `--input`. |
 
@@ -201,22 +201,22 @@ Code 5 belongs to the language-model provider error of the validation run; see
 
 ### Examples
 
-The copy: [`archie get`](get.md) piped into `archie write` stores archie's form of
+The copy: [`arky get`](get.md) piped into `arky write` stores arky's form of
 the source at the target, in each form when `--format` is the same on both sides,
 and a second copy changes nothing.
 
 ```console
-$ archie get notes/task.md | archie write copy.md
-$ archie get copy.md | archie write again.md && cmp copy.md again.md && echo same
+$ arky get notes/task.md | arky write copy.md
+$ arky get copy.md | arky write again.md && cmp copy.md again.md && echo same
 same
-$ archie get notes/task.md -f binary | archie write copy.md -f binary
+$ arky get notes/task.md -f binary | arky write copy.md -f binary
 ```
 
 The same copy through a JSON file:
 
 ```console
-$ archie get notes/task.md --format json --output task.json
-$ archie write again.md -f json -i task.json
+$ arky get notes/task.md --format json --output task.json
+$ arky write again.md -f json -i task.json
 ```
 
 A document that embeds `media/logo.png`, stored from a file with its picture
@@ -229,34 +229,34 @@ media  report.md
 
 draft/media:
 logo.png
-$ archie write notes/report.md -i draft/report.md
-$ archie get notes/report.md | archie write copy/report.md
+$ arky write notes/report.md -i draft/report.md
+$ arky get notes/report.md | arky write copy/report.md
 $ ls copy/media
 logo.png
-$ archie get notes/report.md -f zip -o report.zip
-$ archie write zipped/report.md -f zip -i report.zip
+$ arky get notes/report.md -f zip -o report.zip
+$ arky write zipped/report.md -f zip -i report.zip
 ```
 
 A document whose picture is missing, refused and then stored with its embed as
 written:
 
 ```console
-$ printf '![Logo](media/none.png)\n' | archie write notes/a.md; echo "exit $?"
-archie: notes/a.md: index.md names media/none.png, and the bundle does not hold it
+$ printf '![Logo](media/none.png)\n' | arky write notes/a.md; echo "exit $?"
+arky: notes/a.md: index.md names media/none.png, and the bundle does not hold it
 exit 1
-$ printf '![Logo](media/none.png)\n' | archie write notes/a.md --allow-missing; echo "exit $?"
+$ printf '![Logo](media/none.png)\n' | arky write notes/a.md --allow-missing; echo "exit $?"
 exit 0
 ```
 
 ## Writing into a part of a document
 
-*This form is not yet specified, and archie does not have it yet: `--path`,
+*This form is not yet specified, and arky does not have it yet: `--path`,
 `--append`, and `--from-body` are usage errors, code 2.*
 
 ### Synopsis
 
 ```console
-$ archie write folder/file.md --path='# ##["Specs"][2]' --append --from-body='path-to-file.txt'
+$ arky write folder/file.md --path='# ##["Specs"][2]' --append --from-body='path-to-file.txt'
 ```
 
 ### Arguments and options
@@ -290,8 +290,8 @@ a base document plus a chain of changes applied in order reproduces the latest
 version byte for byte, and unapplying the chain in reverse returns the original.
 The guarantee holds because the content is linted markdown with a known shape.
 
-archie preserves the formatting of frontmatter it did not write. remargin's write
-path emits archie's canonical form instead.
+arky preserves the formatting of frontmatter it did not write. remargin's write
+path emits arky's canonical form instead.
 
 ### Not yet specified
 
@@ -311,16 +311,16 @@ path emits archie's canonical form instead.
 
 Field-editing commands — setting a field, removing a field, adding to an array,
 removing from an array, and a bulk edit driven by a `--where` option — are not
-archie's shape; the query language drives modification instead.
+arky's shape; the query language drives modification instead.
 
 See [Design status](../../design-status.md) for the open questions around this
 command.
 
 ## Related
 
-- [archie get](get.md) — the document at a path, in one of the four forms.
+- [arky get](get.md) — the document at a path, in one of the four forms.
 - [Query grammar](../query-grammar.md) — the path expression in full.
-- [archie query](query.md) — the language that also drives modification.
+- [arky query](query.md) — the language that also drives modification.
 - [Change objects](../change-objects.md) — the transactional model every write
   into a part of a document produces.
 - [Shape language](../shape-language.md) — shapes declared for a document or a

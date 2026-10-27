@@ -1,17 +1,17 @@
 # Query and search
 
-Two verbs read a vault. `archie query` selects documents by an expression over
-their frontmatter. `archie search` matches a pattern against documents. This
+Two verbs read a vault. `arky query` selects documents by an expression over
+their frontmatter. `arky search` matches a pattern against documents. This
 guide covers choosing between them, writing the expression, and reading what
 comes back.
 
 ## Step 1: choose the verb
 
-- **`archie search`** runs over document bodies, over frontmatter when
+- **`arky search`** runs over document bodies, over frontmatter when
   frontmatter is specified, and over both when clauses are given for both.
-  Matching frontmatter and body separately is one reason archie parses markdown
+  Matching frontmatter and body separately is one reason arky parses markdown
   itself.
-- **`archie query`** starts from frontmatter: it walks a folder, parses each
+- **`arky query`** starts from frontmatter: it walks a folder, parses each
   file's frontmatter, and emits the files whose frontmatter satisfies one
   expression.
 
@@ -21,8 +21,8 @@ matches body text — or two separate ones, is not yet specified.*
 ## Step 2: write the expression
 
 ```console
-$ archie query 'tags contains "rule"' .grit/patterns/
-$ archie query --exp='type=issue'
+$ arky query 'tags contains "rule"' .grit/patterns/
+$ arky query --exp='type=issue'
 ```
 
 The expression language is like `jq`, the command-line processor for JavaScript
@@ -38,7 +38,7 @@ line — is not yet specified.* See
 ## Step 3: search a path for a pattern
 
 ```console
-$ archie search folder/ -gi "[0-9]?[a-z]*"
+$ arky search folder/ -gi "[0-9]?[a-z]*"
 ```
 
 *The syntax of a frontmatter clause and of a body clause, the meaning of the
@@ -67,7 +67,7 @@ its own guide: [Write through paths](write-through-paths.md).
 ## Not yet specified
 
 - Whether one bulk modification is one change object or one per document.
-- Whether `query`, `search`, and the path expression given to `archie write`
+- Whether `query`, `search`, and the path expression given to `arky write`
   share one grammar.
 - Whether a path defaults to a configured root when it is omitted, whether
   several paths may be given, and whether a path may be a glob.
@@ -79,11 +79,11 @@ See [Design status](../design-status.md) for the open questions here.
 ## Related
 
 - [Query grammar](../reference/query-grammar.md) — the grammar reference.
-- [archie query](../reference/cli/query.md) — the command.
-- [archie search](../reference/cli/search.md) — the command and its scope.
+- [arky query](../reference/cli/query.md) — the command.
+- [arky search](../reference/cli/search.md) — the command and its scope.
 - [Write through paths](write-through-paths.md) — addressing and changing part of
   one document.
 - [Documents and schemas](../concepts/documents-and-schemas.md) — the parser the
   language runs on.
-- [A first session with archie](../tutorial/first-session.md) — the same steps
+- [A first session with arky](../tutorial/first-session.md) — the same steps
   front to back.

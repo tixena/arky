@@ -1,6 +1,6 @@
 # Model Context Protocol server
 
-archie exposes a server that speaks the Model Context Protocol: the protocol
+arky exposes a server that speaks the Model Context Protocol: the protocol
 through which a language-model client calls a program's operations as structured
 tool calls, instead of running the program in a shell and reading the text it
 prints.
@@ -8,7 +8,7 @@ prints.
 ## Starting the server
 
 ```console
-$ archie mcp
+$ arky mcp
 ```
 
 Starts the server. It speaks the protocol over standard input and standard
@@ -24,7 +24,7 @@ the directory it was started in.
 The server exposes tools and nothing else: one tool per command, named as the
 command is named, taking the command's arguments and options as its parameters.
 Names are short and carry no prefix, because a server already scopes the tools it
-exposes — the tool is `get`, not `archie_get` — and a name that needs more than
+exposes — the tool is `get`, not `arky_get` — and a name that needs more than
 one word joins them with an underscore. A parameter takes its option's name with
 the dashes replaced by underscores.
 
@@ -46,23 +46,23 @@ The [tools](tools.md) page lists every tool with its parameters and its result.
 The validation report is the one result shape the design fixes; it is shown in
 full on the [Output formats](../output-formats.md) page. Three commands have
 output specified for a terminal or for a file rather than for a program — the
-inheritance chain of [archie trace](../cli/trace.md), the proposal screen of
-[archie inbox](../cli/inbox.md), and the document written by
-[archie export](../cli/export.md) — and the [tools](tools.md) page says so
+inheritance chain of [arky trace](../cli/trace.md), the proposal screen of
+[arky inbox](../cli/inbox.md), and the document written by
+[arky export](../cli/export.md) — and the [tools](tools.md) page says so
 rather than restating a drawing as a result.
 
 ## Configuration
 
-archie reads a configuration file named `archie.toml` at the repository root.
+arky reads a configuration file named `arky.toml` at the repository root.
 Settings take precedence in this order, highest first: options given on the
 command line, then environment variables, then the file, then built-in defaults.
-`ARCHIE_CONFIG` names the configuration file and `ARCHIE_ROOT` names a corpus
+`ARKY_CONFIG` names the configuration file and `ARKY_ROOT` names a corpus
 root. What the file holds is documented on the [Configuration](../config.md)
 page.
 
 ## Errors and exit codes
 
-archie returns 0 for success with no issues, 1 for validation errors found, 2 for
+arky returns 0 for success with no issues, 1 for validation errors found, 2 for
 warnings only when the run was set to fail on warnings, 3 for a configuration
 error, 4 for a file system error, and 5 for a language-model provider error. The
 [Exit codes](../exit-codes.md) page carries the table in full. A non-zero exit
@@ -92,10 +92,10 @@ server.
 
 - [Model Context Protocol tools](tools.md) — one entry per tool.
 - [Command-line interface](../cli/index.md) — the surface these tools mirror.
-- [Configuration](../config.md) — the `archie.toml` file and the precedence
+- [Configuration](../config.md) — the `arky.toml` file and the precedence
   order.
 - [Exit codes](../exit-codes.md) — the code table.
 - [Output formats](../output-formats.md) — the validation report.
-- [Use archie from an agent](../../guides/use-from-an-agent.md) — the how-to.
-- [archie and remargin](../../concepts/archie-and-remargin.md) — the boundary
+- [Use arky from an agent](../../guides/use-from-an-agent.md) — the how-to.
+- [arky and remargin](../../concepts/arky-and-remargin.md) — the boundary
   between the two.

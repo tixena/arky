@@ -1,6 +1,6 @@
 # Changes and versions
 
-archie's model of editing is not "open a file, write it back". Every change is an
+arky's model of editing is not "open a file, write it back". Every change is an
 object: a value that describes what was done to a resource, that applies to
 produce the next version of that resource, and that unapplies to produce the
 previous one. A document's history is the base document plus the ordered chain of
@@ -40,7 +40,7 @@ guarantees are checked are not yet specified.* See
 ## Structural operations
 
 Move, rename, merge, and archive are integral transactions rather than filesystem
-operations followed by a repair pass. archie holds a corpus as a structured graph,
+operations followed by a repair pass. arky holds a corpus as a structured graph,
 with typed resources and links as first-class edges, so a move rewrites every
 inbound link, revalidates inheritance and folder indexes, and either completes or
 does nothing.
@@ -68,17 +68,17 @@ refused, nothing moves at all.
 
 ## A worked instance: additive, reversible linking
 
-Linking is the smallest operation that carries both promises. `archie link` wraps
+Linking is the smallest operation that carries both promises. `arky link` wraps
 every collision-free mention of a resource in a relative-path link to that
 resource. It is additive, so stripping every injected link reproduces the file
-byte for byte, and `archie unlink` is an exact inverse that strips only a link
-`archie link` itself would have produced.
+byte for byte, and `arky unlink` is an exact inverse that strips only a link
+`arky link` itself would have produced.
 
 The same operation shows what a parser has to know for such an edit to be safe. It
 never rewrites frontmatter, fenced code blocks — remargin comment blocks included
 — inline code spans, existing links and wiki-links, or raw web addresses. Those
 skip zones are the parser knowing what a link, a fence, a frontmatter block, and a
-comment block are. See [archie link](../reference/cli/link.md).
+comment block are. See [arky link](../reference/cli/link.md).
 
 ## Not yet specified
 
@@ -86,7 +86,7 @@ comment block are. See [archie link](../reference/cli/link.md).
   documents, whether that is one change object covering every document touched or
   one change object per document.
 - Which mutation verbs exist beyond appending, which
-  [archie write](../reference/cli/write.md) carries today — whether the language
+  [arky write](../reference/cli/write.md) carries today — whether the language
   also sets, removes, replaces, and moves.
 - How a change object relates to storage: whether a
   [backend](backends-and-capabilities.md) stores documents, change objects, or

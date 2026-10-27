@@ -138,10 +138,10 @@ WARN: File contains 5 independent task items
 INFO: Inbox file needs processing (no frontmatter)
   → src/inbox/quick_note.md
 
-  Run 'archie inbox' to classify
+  Run 'arky inbox' to classify
 ```
 
-See [archie inbox](cli/inbox.md).
+See [arky inbox](cli/inbox.md).
 
 ## Rules for knowledge patterns
 
@@ -180,9 +180,9 @@ INFO: Unknown relation type 'foobar'
 Each rule is turned on or off in the configuration file. The validation command
 takes a rule filter, so a run can be narrowed to named rules, and the level at
 which the run fails — error, warning, or any, with error as the default — which
-decides the process [exit code](exit-codes.md). archie never modifies a file
-without an explicit repair flag. See [archie check](cli/check.md) and
-[archie fix](cli/fix.md).
+decides the process [exit code](exit-codes.md). arky never modifies a file
+without an explicit repair flag. See [arky check](cli/check.md) and
+[arky fix](cli/fix.md).
 
 ## Not yet specified
 

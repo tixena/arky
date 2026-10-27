@@ -85,7 +85,7 @@ jobs:
         TEST: ${{ steps.test.outcome }}
       run: |
         # Validate repository to prevent forks from sending notifications
-        if [[ "$REPO" != "eburgos/archie" && "$REPO" != "tixena/archie" ]]; then
+        if [[ "$REPO" != "eburgos/arky" && "$REPO" != "tixena/arky" ]]; then
           echo "⏭️ Skipping Discord notification (repository is $REPO, a fork)"
           exit 0
         fi
@@ -145,7 +145,7 @@ jobs:
                   + (if $failed != "None" then [ {name: "Failed Step", value: $failed, inline: false} ] else [] end)
                   + [ {name: "Build Status", value: $status, inline: false} ]
                 ),
-                footer: {text: "archie CI"}
+                footer: {text: "arky CI"}
               } + (if $ts != "" then {timestamp: $ts} else {} end))
             ],
             components: [

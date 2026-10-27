@@ -1,21 +1,21 @@
 # Lint a vault
 
-Linting is one run: archie walks a tree of markdown files, applies its rules, and
+Linting is one run: arky walks a tree of markdown files, applies its rules, and
 reports what it found at three levels of severity. The run never modifies a file;
 only the repair run writes.
 
 ## Step 1: choose what to scan
 
 ```console
-$ archie check
-$ archie check src/work/
+$ arky check
+$ arky check src/work/
 ```
 
 With no path, the run scans the root named in the configuration file; with a
 path, it scans that path. Folders in the configuration's ignore list are skipped
 either way, and the defaults skip Obsidian's own folder, the assets folder, and
 the templates folder — see [Configuration](../reference/config.md). The same run
-is also spelled `archie lint folder/`; every option below is written for
+is also spelled `arky lint folder/`; every option below is written for
 `check`.
 
 ## Step 2: read the report
@@ -23,7 +23,7 @@ is also spelled `archie lint folder/`; every option below is written for
 The default output is text, grouped by severity.
 
 ```console
-$ archie check
+$ arky check
 Scanning src/...
 Found 127 markdown files, 45 assets
 
@@ -71,13 +71,13 @@ another program to read, and markdown for a report to commit or paste. Select on
 with `--format json` or `--format markdown`, or set the default in the
 configuration file's `[output]` table; both appear in full on
 [Output formats](../reference/output-formats.md). JSON is the one to reach for in
-a build pipeline — see [Run archie in continuous integration](run-in-ci.md).
+a build pipeline — see [Run arky in continuous integration](run-in-ci.md).
 
 ## Step 3: narrow the run
 
 ```console
-$ archie check --rule frontmatter --rule type
-$ archie check src/work/ --ignore templates
+$ arky check --rule frontmatter --rule type
+$ arky check src/work/ --ignore templates
 ```
 
 `--rule` restricts the run to named rules and may be given more than once, and
@@ -89,7 +89,7 @@ is what an `--ignore` pattern may contain.*
 ## Step 4: decide when the run should fail
 
 ```console
-$ archie check --fail-on warning
+$ arky check --fail-on warning
 ```
 
 `--fail-on` takes `error`, `warning`, or `any`, and defaults to `error`. It
@@ -106,15 +106,15 @@ informational is not yet specified.* See
 ## Step 5: repair what can be repaired
 
 ```console
-$ archie fix --dry-run
-$ archie fix src/work/ --rule inheritance
+$ arky fix --dry-run
+$ arky fix src/work/ --rule inheritance
 ```
 
 The repair run addresses what needs no human decision: adding a missing `created`
 date from the file's modification time, adding missing inherited properties,
 creating missing folder index files, and moving a file marked as archived into
 the archive folder. It refuses a missing `type`, an invalid `type`, and the
-classification of an inbox file. See [archie fix](../reference/cli/fix.md).
+classification of an inbox file. See [arky fix](../reference/cli/fix.md).
 
 ## What this run becomes
 
@@ -127,7 +127,7 @@ yet specified.* See [Define a shape](define-a-shape.md) and
 
 ## Related
 
-- [archie check](../reference/cli/check.md) — the full option table.
+- [arky check](../reference/cli/check.md) — the full option table.
 - [Validation rules](../reference/validation-rules.md) — every rule, its level,
   its message, and whether it is repairable.
-- [Run archie in continuous integration](run-in-ci.md) — this run as a build step.
+- [Run arky in continuous integration](run-in-ci.md) — this run as a build step.

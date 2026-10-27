@@ -1,0 +1,46 @@
+[package]
+name = "arky-store"
+description = "Where arky keeps documents: the storage interface and its stores"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The MongoDB store: arky-core's MongoDB layer, the driver and its BSON, tokio's timer, and
+# the MinIO store that keeps its files.
+mongodb = [
+    "arky-core/mongodb",
+    "dep:mongodb",
+    "dep:bson",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:tixschema",
+    "dep:tokio",
+    "minio",
+]
+# The MinIO store: os-shim's MinIO client, and the Bucket trait it implements.
+minio = ["os-shim/minio", "os-shim/async"]
+
+[dependencies]
+arky-core = { path = "../arky-core" }
+os-shim = { workspace = true, features = ["async"] }
+sha2.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+# The MongoDB layer, the driver and tokio's timer, under the mongodb feature
+bson = { workspace = true, optional = true }
+mongodb = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tixschema = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["time"] }
+
+[dev-dependencies]
+chrono.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }

@@ -1,13 +1,13 @@
-# Use archie from an agent
+# Use arky from an agent
 
 An agent — a program driven by a language model — does not open a terminal. It
-calls tools. archie exposes a Model Context Protocol (MCP) server for exactly
+calls tools. arky exposes a Model Context Protocol (MCP) server for exactly
 that: the Model Context Protocol is the interface through which a model-driven
 program discovers the tools a system offers and calls them.
 
 ## Step 1: know what you are calling
 
-archie has three faces over one engine: a Rust library, a command line, and the
+arky has three faces over one engine: a Rust library, a command line, and the
 Model Context Protocol server. An agent uses the third. The command line and the
 server are two ways into the same engine, so every capability in this book's
 reference section is the subject matter of both.
@@ -18,7 +18,7 @@ yet specified.* See
 
 ## Step 2: expect these conventions
 
-archie's server mirrors remargin's conventions.
+arky's server mirrors remargin's conventions.
 
 - **Flat, verb-named tools.** One tool per operation, named for the operation —
   reading a file, listing a directory, searching text, querying, writing,
@@ -49,7 +49,7 @@ The read-side operations are listing the contents of a vault, retrieving a
 resource by path — a folder, a markdown file, an image, or a document in Portable
 Document Format — selecting documents by an expression over their frontmatter,
 and matching a pattern against bodies and frontmatter. See
-[archie ls](../reference/cli/ls.md), [archie get](../reference/cli/get.md), and
+[arky ls](../reference/cli/ls.md), [arky get](../reference/cli/get.md), and
 [Query and search](query-and-search.md).
 
 Retrieving a document as parsed data rather than as text is what makes a vault
@@ -66,19 +66,19 @@ exception. See [Change objects](../reference/change-objects.md) and
 
 What an agent may see and change is bounded by remargin's permission system,
 which grants view or edit access to files and to parts of markdown documents, so
-that only the accessible portion is shown. archie's contribution is that a part
+that only the accessible portion is shown. arky's contribution is that a part
 of a document has to be addressable before access to it can be granted or
-refused. *How archie serves that mechanically is not yet specified.*
+refused. *How arky serves that mechanically is not yet specified.*
 
 ## What else a model can consume
 
-[archie export](../reference/cli/export.md) serializes a vault for a language
+[arky export](../reference/cli/export.md) serializes a vault for a language
 model to read: for each file, its frontmatter, the categorized observations found
 in its body, the typed relations to other resources, and a graph of nodes and
 edges built from those relations, all in JavaScript Object Notation (JSON). See
 also [Knowledge patterns](../concepts/knowledge-patterns.md).
 
-[archie inbox](../reference/cli/inbox.md) runs the other way round: archie asks a
+[arky inbox](../reference/cli/inbox.md) runs the other way round: arky asks a
 model to classify unfiled captures.
 
 ## Not yet specified
@@ -88,7 +88,7 @@ model to classify unfiled captures.
 - Whether the preview returns the change object a write would produce or a
   summary of it.
 - Whether the system ends up with one Model Context Protocol server or two.
-- Whether the command line or the server is archie's primary interface.
+- Whether the command line or the server is arky's primary interface.
 
 See [Design status](../design-status.md) for the open questions here.
 
@@ -98,6 +98,6 @@ See [Design status](../design-status.md) for the open questions here.
   reference.
 - [Model Context Protocol tools](../reference/mcp/tools.md) — the tools it
   exposes.
-- [archie and remargin](../concepts/archie-and-remargin.md) — the boundary
+- [arky and remargin](../concepts/arky-and-remargin.md) — the boundary
   between the two systems.
 - [Query and search](query-and-search.md) — the read operations an agent calls.

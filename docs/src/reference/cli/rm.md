@@ -1,12 +1,12 @@
-# archie rm
+# arky rm
 
-`archie rm` removes a file or a folder from a corpus.
+`arky rm` removes a file or a folder from a corpus.
 
 ## Synopsis
 
 ```console
-$ archie rm folder/file.md
-$ archie rm folder/
+$ arky rm folder/file.md
+$ arky rm folder/
 ```
 
 The path is required. *Options are not yet specified: no confirmation flag, no
@@ -33,5 +33,5 @@ command.
   merge as transactions that keep links valid.
 - [Change objects](../change-objects.md) — the transactional model a removal
   would have to fit.
-- [archie write](write.md) — the command that changes a document's contents.
+- [arky write](write.md) — the command that changes a document's contents.
 - [Command-line interface](index.md) — global options and the command table.

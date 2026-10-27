@@ -1,6 +1,6 @@
 # Choose a backend
 
-A *backend* is where the versions of a document are kept. archie tracks versions
+A *backend* is where the versions of a document are kept. arky tracks versions
 above that store, so a caller works with documents and their history without
 knowing whether the bytes land in a folder on a disk, in a git repository, or in
 an object store.

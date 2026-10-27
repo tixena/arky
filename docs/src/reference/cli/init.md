@@ -1,13 +1,13 @@
-# archie init
+# arky init
 
-`archie init` sets up a corpus: it creates archie's configuration file and the
+`arky init` sets up a corpus: it creates arky's configuration file and the
 folder index files that are missing.
 
 ## Synopsis
 
 ```console
-$ archie init [PATH]
-$ archie init .
+$ arky init [PATH]
+$ arky init .
 ```
 
 `[PATH]` is where to initialize; it is optional.
@@ -16,13 +16,13 @@ $ archie init .
 
 | Option | Effect |
 |---|---|
-| `--config` | Create `archie.toml` if it is missing. |
+| `--config` | Create `arky.toml` if it is missing. |
 | `--indexes` | Create the missing `index.md` files. |
 | `--all` | Do both. |
 
 ## Behavior
 
-Two jobs. The first writes `archie.toml` at the repository root, the file whose
+Two jobs. The first writes `arky.toml` at the repository root, the file whose
 settings the [Configuration](../config.md) page documents. The second creates an
 `index.md` in every folder that has none, carrying the properties that folder
 inherits from the folders above it — the same repair the `index-required`
@@ -36,8 +36,8 @@ types may live there and whether subfolders are permitted. See
 ## Examples
 
 ```console
-$ archie init .
-$ archie init --all
+$ arky init .
+$ arky init --all
 ```
 
 ## Not yet specified
@@ -55,6 +55,6 @@ See [Design status](../../design-status.md) for the open questions here.
 
 - [Configuration](../config.md) — the file this command creates.
 - [Inheritance](../../concepts/inheritance.md) — what an index file declares.
-- [archie check](check.md) — the `index-required` rule, which reports the folders
+- [arky check](check.md) — the `index-required` rule, which reports the folders
   this command fills in.
 - [Command-line interface](index.md) — global options and the command table.

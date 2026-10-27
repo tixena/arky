@@ -2,7 +2,7 @@
 
 Moving a folder, renaming a document, archiving something, and merging one folder
 into another change the structure of a vault rather than the contents of one
-document. archie treats them as one class of operation with one requirement:
+document. arky treats them as one class of operation with one requirement:
 every link that pointed into what moved still points at it afterwards, because
 the operation rewrote those links as part of itself.
 
@@ -13,7 +13,7 @@ it could take.
 
 ## What a move does
 
-archie holds a vault as a structured graph, with typed resources and links as
+arky holds a vault as a structured graph, with typed resources and links as
 first-class edges, so one operation:
 
 1. moves the folder or the document;
@@ -45,9 +45,9 @@ relative paths, wiki-links, and embeds. Candidates for preserving: historical
 spellings, commands quoted inside a document, and signed comment blocks whose
 content must not change.
 
-Region-aware rewriting already exists in `archie link`, which rewrites document
+Region-aware rewriting already exists in `arky link`, which rewrites document
 text without disturbing frontmatter, fenced blocks, inline code, existing links,
-or raw web addresses. A move needs the same discrimination, resting on archie's
+or raw web addresses. A move needs the same discrimination, resting on arky's
 own parser. See [Link resources](link-resources.md).
 
 ## Why the validation rules are not a substitute
@@ -57,9 +57,9 @@ exist both report a break after it has happened. A structural operation cannot
 break integrity in the first place. See
 [Validation rules](../reference/validation-rules.md).
 
-## How this fits the rest of archie
+## How this fits the rest of arky
 
-Every change archie makes produces a change object: a base plus a chain of
+Every change arky makes produces a change object: a base plus a chain of
 changes applied in order gives a byte-identical latest version, and unapplying
 the chain in reverse returns the original. These operations are that model
 applied to structure. See [Change objects](../reference/change-objects.md).
@@ -79,5 +79,5 @@ See [Design status](../design-status.md) for the open questions here.
   command reference.
 - [Changes and versions](../concepts/changes-and-versions.md) — the model these
   operations generalize into.
-- [Link resources](link-resources.md) — the rewrite archie specifies in detail.
-- [archie rm](../reference/cli/rm.md) — removal, which this class does not cover.
+- [Link resources](link-resources.md) — the rewrite arky specifies in detail.
+- [arky rm](../reference/cli/rm.md) — removal, which this class does not cover.

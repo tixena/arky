@@ -1,6 +1,6 @@
-# A first session with archie
+# A first session with arky
 
-This is one pass through archie, from an empty vault to a change: set a vault up,
+This is one pass through arky, from an empty vault to a change: set a vault up,
 describe what its documents must look like, check them, read the report, select
 documents, search their text, write into one of them, link the mentions inside
 them, and see what the change amounts to.
@@ -12,10 +12,10 @@ in this session means step 3 alone.
 ## Step 1: set a vault up
 
 ```console
-$ archie init .
+$ arky init .
 ```
 
-`archie init [PATH]` prepares a vault. `--config` writes `archie.toml` at the
+`arky init [PATH]` prepares a vault. `--config` writes `arky.toml` at the
 root if it is missing — the file whose every key is listed on
 [Configuration](../reference/config.md). `--indexes` creates an `index.md` in
 every folder that has none, carrying the properties that folder inherits from the
@@ -24,15 +24,15 @@ folders above it. `--all` does both.
 The inheritance mechanism the second option serves is itself under
 reconsideration — see [Inheritance](../concepts/inheritance.md).
 
-*What `archie init` does when none of the three options is given, what the file
+*What `arky init` does when none of the three options is given, what the file
 it writes contains, whether an existing configuration file is left alone or
 refreshed, what the path defaults to, and what the command prints, are not yet
-specified.* See [archie init](../reference/cli/init.md).
+specified.* See [arky init](../reference/cli/init.md).
 
 ## Step 2: describe what the documents must look like
 
 Everything after this step leans on it. A *shape* is your description of what a
-markdown document, or one part of a document, has to look like, and archie's
+markdown document, or one part of a document, has to look like, and arky's
 linter checks documents against shapes. A schema carries a shape in one of two
 modes: strict rejects content the shape does not declare, loose lets it through.
 There is no mode that accepts a document by trimming it.
@@ -46,18 +46,18 @@ See [Shape language](../reference/shape-language.md) and
 ## Step 3: check a vault and read the report
 
 ```console
-$ archie lint folder/
+$ arky lint folder/
 ```
 
 A run walks the root named in the configuration file, or the path it is given,
 skips the folders in the ignore list, applies the enabled rules, and reports
 every finding at one of three levels. It never modifies a file.
 
-The same run is also spelled `archie check`, which is the spelling every option
+The same run is also spelled `arky check`, which is the spelling every option
 is written for. Its report:
 
 ```console
-$ archie check
+$ arky check
 Scanning src/...
 Found 127 markdown files, 45 assets
 
@@ -114,8 +114,8 @@ of what a shape says once shapes exist. See
 ## Step 4: select documents by their frontmatter
 
 ```console
-$ archie query 'tags contains "rule"' .grit/patterns/
-$ archie query --exp='type=issue'
+$ arky query 'tags contains "rule"' .grit/patterns/
+$ arky query --exp='type=issue'
 ```
 
 A query walks a folder, parses each file's frontmatter, and emits the files whose
@@ -129,26 +129,26 @@ written as a command-line argument, and which of the two spellings above is the
 command line — is not yet specified*, and neither is what a query prints or what
 it returns to the shell when nothing matched. See
 [Query grammar](../reference/query-grammar.md) and
-[archie query](../reference/cli/query.md).
+[arky query](../reference/cli/query.md).
 
 ## Step 5: search the text of the documents
 
 ```console
-$ archie search folder/ -gi "[0-9]?[a-z]*"
+$ arky search folder/ -gi "[0-9]?[a-z]*"
 ```
 
 A search runs over document bodies, over frontmatter when frontmatter is
 specified, and over both when clauses are given for both. Matching frontmatter
-and body separately is one reason archie parses markdown itself.
+and body separately is one reason arky parses markdown itself.
 
 *The syntax of a frontmatter clause and of a body clause, the meaning of the
 short flags, and the dialect of regular expression the pattern is written in, are
-not yet specified.* See [archie search](../reference/cli/search.md).
+not yet specified.* See [arky search](../reference/cli/search.md).
 
 ## Step 6: write into part of one document
 
 ```console
-$ archie write folder/file.md --path='# ##["Specs"][2]' --append --from-body='path-to-file.txt'
+$ arky write folder/file.md --path='# ##["Specs"][2]' --append --from-body='path-to-file.txt'
 ```
 
 The command names one document, addresses a part of it with `--path` — here the
@@ -166,13 +166,13 @@ attached to — and what a shape can govern.
 given inline or read from standard input, what happens when the path addresses
 nothing or the document lacks the structure the path assumes, whether a write can
 be previewed, and what the command prints, are not yet specified.* See
-[archie write](../reference/cli/write.md) and
+[arky write](../reference/cli/write.md) and
 [Write through paths](../guides/write-through-paths.md).
 
 ## Step 7: turn mentions into links
 
 ```console
-$ archie link folder/
+$ arky link folder/
 ```
 
 Every collision-free mention of a resource's name or alias, in the markdown files
@@ -187,7 +187,7 @@ to one kind of document.
 
 *Which frontmatter fields supply a resource's matchable strings, how a target is
 chosen when the resource is a folder, and what a report of the run looks like,
-are not yet specified.* See [archie link](../reference/cli/link.md) and
+are not yet specified.* See [arky link](../reference/cli/link.md) and
 [Link resources](../guides/link-resources.md).
 
 ## Step 8: see what the change amounts to
@@ -210,8 +210,8 @@ only a link the run would have produced.
 
 *What a change object contains, how it is serialized, how one is named, where the
 chain is kept, whether one query-driven change across many documents is one
-object or one per document, and what archie does when a replay is not
-byte-identical because a document was edited outside archie, are not yet
+object or one per document, and what arky does when a replay is not
+byte-identical because a document was edited outside arky, are not yet
 specified.* No command reads a document's history either. See
 [Change objects](../reference/change-objects.md),
 [Changes and versions](../concepts/changes-and-versions.md), and
@@ -235,7 +235,7 @@ Each step above has a guide that takes it further.
   moving a folder without breaking the references into it.
 - [Choose a backend](../guides/choose-a-backend.md) — where a vault and its
   versions are stored.
-- [Use archie from an agent](../guides/use-from-an-agent.md) — the Model Context
+- [Use arky from an agent](../guides/use-from-an-agent.md) — the Model Context
   Protocol (MCP) server.
-- [Run archie in continuous integration](../guides/run-in-ci.md) — the same check
+- [Run arky in continuous integration](../guides/run-in-ci.md) — the same check
   as a build step.

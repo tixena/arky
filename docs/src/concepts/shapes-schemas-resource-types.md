@@ -4,14 +4,14 @@ Three words name three different things.
 
 - A **shape** is what a user declares a document, or a part of a document, must
   look like.
-- A **schema** is the object archie's engine holds and enforces, carrying a mode
+- A **schema** is the object arky's engine holds and enforces, carrying a mode
   that decides how it treats content it did not declare.
 - A **resource type** is remargin's idea of what a document *is* — a person, a
-  project, a task. archie's linter enforces resource types without owning them.
+  project, a task. arky's linter enforces resource types without owning them.
 
 ## Shape
 
-Shapes are declared by the user, not built into archie, and a shape applies either
+Shapes are declared by the user, not built into arky, and a shape applies either
 to a whole markdown document or to a sub-part of one — a section, a fragment — not
 only to a document as a unit. Whatever a path expression can address is what a
 shape can be attached to, so the reach of shapes follows the reach of the
@@ -23,19 +23,19 @@ documents it governs — is not yet specified.* See
 
 ## Schema
 
-A schema has a mode, and archie offers two of them:
+A schema has a mode, and arky offers two of them:
 
 - **Strict** rejects content outside the declared shape.
 - **Loose** lets undeclared content through.
 
-There is no stripping mode. archie never accepts content and silently trims it to
+There is no stripping mode. arky never accepts content and silently trims it to
 make a document validate.
 
 Schemas cover both frontmatter and document structure, and what a document is
 required to carry follows from the governing schema rather than from a fixed rule
 — see [Documents and schemas](documents-and-schemas.md).
 
-The schema engine is archie's. The schemas themselves are written against
+The schema engine is arky's. The schemas themselves are written against
 remargin's vocabulary.
 
 ## Resource type
@@ -48,9 +48,9 @@ date, an end date, and a repository. A vault's set might read `index`, `person`,
 `workaround`, `walkthrough`, `research`, `reference`, `log`, and `event`, with
 `asset` for non-markdown files that are referenced rather than typed.
 
-No such list belongs to archie. Types are declared per corpus, one type can extend
+No such list belongs to arky. Types are declared per corpus, one type can extend
 another to add to it, and ownership of the vocabulary sits with remargin — see
-[archie and remargin](archie-and-remargin.md).
+[arky and remargin](arky-and-remargin.md).
 
 Resource types carry actions, which are remargin's as well: a `task` type, for
 example, declares `defer`, `close`, and `assign`, so a user interface can render
@@ -60,7 +60,7 @@ any resource together with its actions and an agent can execute them.
 
 remargin declares a resource type; the type is expressed as a schema, in a strict
 or a loose mode; the schema is built from shapes the user specifies for a document
-or for parts of one; archie's linter checks documents against those shapes and
+or for parts of one; arky's linter checks documents against those shapes and
 reports what does not satisfy them.
 
 *Whether "shape" and "schema" name one object or two, and how one type extends
@@ -70,7 +70,7 @@ two words separately and asserts no relation between them; see
 
 ## What the linter checks
 
-archie's validation rules cover frontmatter, individual properties, document
+arky's validation rules cover frontmatter, individual properties, document
 structure, archive placement, assets nothing references, tasks embedded in notes,
 and unprocessed captures. Each rule has a message and a severity, and some can be
 repaired automatically. The full catalog is on the

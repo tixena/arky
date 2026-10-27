@@ -1,12 +1,12 @@
-# archie link
+# arky link
 
-`archie link` wraps plain-text mentions of known resources in links to those
+`arky link` wraps plain-text mentions of known resources in links to those
 resources.
 
 ## Synopsis
 
 ```console
-$ archie link folder/
+$ arky link folder/
 ```
 
 Scans the markdown files under `folder/` and rewrites each qualifying mention
@@ -38,8 +38,8 @@ any other write.
 
 ## Undoing a run
 
-`archie unlink` removes exactly the links a link run produces — a link whose
-display text is a collision-free mention and whose target is what `archie link`
+`arky unlink` removes exactly the links a link run produces — a link whose
+display text is a collision-free mention and whose target is what `arky link`
 would emit — and touches nothing else. A link it could not have produced is left
 alone.
 

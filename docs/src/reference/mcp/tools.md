@@ -11,24 +11,24 @@ ones a tool schema carries — a string, a boolean, a number, an array of string
 
 | Tool | Mirrors | What it does |
 |---|---|---|
-| [`ls`](#ls) | [`archie ls`](../cli/ls.md) | Lists the contents of a corpus. |
-| [`get`](#get) | [`archie get`](../cli/get.md) | Retrieves a resource by its path. |
-| [`query`](#query) | [`archie query`](../cli/query.md) | Selects documents by an expression over their frontmatter. |
-| [`search`](#search) | [`archie search`](../cli/search.md) | Matches a pattern against documents. |
-| [`write`](#write) | [`archie write`](../cli/write.md) | Writes into the part of one document a path expression addresses. |
-| [`rm`](#rm) | [`archie rm`](../cli/rm.md) | Removes a file or a folder. |
-| [`link`](#link) | [`archie link`](../cli/link.md) | Turns mentions of a resource into links to that resource. |
-| [`lint`](#lint) | [`archie check`](../cli/check.md) | Validates a corpus and reports what it finds. |
-| [`init`](#init) | [`archie init`](../cli/init.md) | Sets up a corpus. |
-| [`fix`](#fix) | [`archie fix`](../cli/fix.md) | Repairs what can be repaired without a person deciding. |
-| [`inbox`](#inbox) | [`archie inbox`](../cli/inbox.md) | Classifies unfiled captures and proposes where each belongs. |
-| [`trace`](#trace) | [`archie trace`](../cli/trace.md) | Reports the chain of inherited properties for one file. |
-| [`export`](#export) | [`archie export`](../cli/export.md) | Serializes a corpus for another program to read. |
-| [`import`](#import) | [`archie import`](../cli/import.md) | Pulls items in from an external source. |
+| [`ls`](#ls) | [`arky ls`](../cli/ls.md) | Lists the contents of a corpus. |
+| [`get`](#get) | [`arky get`](../cli/get.md) | Retrieves a resource by its path. |
+| [`query`](#query) | [`arky query`](../cli/query.md) | Selects documents by an expression over their frontmatter. |
+| [`search`](#search) | [`arky search`](../cli/search.md) | Matches a pattern against documents. |
+| [`write`](#write) | [`arky write`](../cli/write.md) | Writes into the part of one document a path expression addresses. |
+| [`rm`](#rm) | [`arky rm`](../cli/rm.md) | Removes a file or a folder. |
+| [`link`](#link) | [`arky link`](../cli/link.md) | Turns mentions of a resource into links to that resource. |
+| [`lint`](#lint) | [`arky check`](../cli/check.md) | Validates a corpus and reports what it finds. |
+| [`init`](#init) | [`arky init`](../cli/init.md) | Sets up a corpus. |
+| [`fix`](#fix) | [`arky fix`](../cli/fix.md) | Repairs what can be repaired without a person deciding. |
+| [`inbox`](#inbox) | [`arky inbox`](../cli/inbox.md) | Classifies unfiled captures and proposes where each belongs. |
+| [`trace`](#trace) | [`arky trace`](../cli/trace.md) | Reports the chain of inherited properties for one file. |
+| [`export`](#export) | [`arky export`](../cli/export.md) | Serializes a corpus for another program to read. |
+| [`import`](#import) | [`arky import`](../cli/import.md) | Pulls items in from an external source. |
 
 ## ls
 
-Mirrors [`archie ls`](../cli/ls.md). Lists the contents of a corpus.
+Mirrors [`arky ls`](../cli/ls.md). Lists the contents of a corpus.
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -38,7 +38,7 @@ Mirrors [`archie ls`](../cli/ls.md). Lists the contents of a corpus.
 
 ## get
 
-Mirrors [`archie get`](../cli/get.md). Retrieves a resource by its path: a
+Mirrors [`arky get`](../cli/get.md). Retrieves a resource by its path: a
 folder, a markdown file, an image, or a document in Portable Document Format.
 
 | Parameter | Type | Description |
@@ -51,7 +51,7 @@ back in one shape.
 
 ## query
 
-Mirrors [`archie query`](../cli/query.md). Selects documents by an expression
+Mirrors [`arky query`](../cli/query.md). Selects documents by an expression
 over their frontmatter, in a language that also drives modification.
 
 | Parameter | Type | Description |
@@ -64,7 +64,7 @@ described under [Query grammar](../query-grammar.md).
 
 ## search
 
-Mirrors [`archie search`](../cli/search.md). Matches a pattern against documents
+Mirrors [`arky search`](../cli/search.md). Matches a pattern against documents
 in a corpus.
 
 | Parameter | Type | Description |
@@ -80,7 +80,7 @@ selects that scope is not yet specified.*
 
 ## write
 
-Mirrors [`archie write`](../cli/write.md). Writes into the part of one document
+Mirrors [`arky write`](../cli/write.md). Writes into the part of one document
 that a path expression addresses. It is the only tool that operates on a sub-part
 of a document.
 
@@ -100,7 +100,7 @@ summary of it, or nothing is not yet specified.*
 
 ## rm
 
-Mirrors [`archie rm`](../cli/rm.md). Removes a file or a folder from a corpus.
+Mirrors [`arky rm`](../cli/rm.md). Removes a file or a folder from a corpus.
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -110,7 +110,7 @@ Mirrors [`archie rm`](../cli/rm.md). Removes a file or a folder from a corpus.
 
 ## link
 
-Mirrors [`archie link`](../cli/link.md). Wraps plain-text mentions of known
+Mirrors [`arky link`](../cli/link.md). Wraps plain-text mentions of known
 resources in links to those resources.
 
 | Parameter | Type | Description |
@@ -123,7 +123,7 @@ together with the strings excluded for being claimed by more than one resource.
 
 ## lint
 
-Mirrors [`archie check`](../cli/check.md). Validates a corpus, or one path within
+Mirrors [`arky check`](../cli/check.md). Validates a corpus, or one path within
 it, and reports what it finds.
 
 | Parameter | Type | Description |
@@ -147,13 +147,13 @@ what a user-declared shape adds under [Shape language](../shape-language.md).
 
 ## init
 
-Mirrors [`archie init`](../cli/init.md). Sets up a corpus: writes the
+Mirrors [`arky init`](../cli/init.md). Sets up a corpus: writes the
 configuration file and creates the folder index files that are missing.
 
 | Parameter | Type | Description |
 |---|---|---|
 | `path` | string | The corpus to set up. |
-| `config` | boolean | Create `archie.toml` if it is missing. |
+| `config` | boolean | Create `arky.toml` if it is missing. |
 | `indexes` | boolean | Create the missing `index.md` files. |
 | `all` | boolean | Do both. |
 
@@ -162,7 +162,7 @@ booleans is given is not yet specified either.*
 
 ## fix
 
-Mirrors [`archie fix`](../cli/fix.md). Repairs the findings a validation run
+Mirrors [`arky fix`](../cli/fix.md). Repairs the findings a validation run
 reports that can be repaired without a person deciding anything.
 
 | Parameter | Type | Description |
@@ -179,7 +179,7 @@ answers once. *How `interactive` maps onto a tool call is not yet specified.*
 
 ## inbox
 
-Mirrors [`archie inbox`](../cli/inbox.md). Reads the captures dropped into a
+Mirrors [`arky inbox`](../cli/inbox.md). Reads the captures dropped into a
 corpus without being filed, classifies each one with a language model, and
 proposes where each belongs.
 
@@ -196,11 +196,11 @@ The credential is read from the environment, from `ANTHROPIC_API_KEY` or from
 server the client started, is not yet specified.*
 
 **Returns.** *Not yet specified.* The command's proposal screen, shown on
-[archie inbox](../cli/inbox.md), waits for a keystroke and has no tool-call form.
+[arky inbox](../cli/inbox.md), waits for a keystroke and has no tool-call form.
 
 ## trace
 
-Mirrors [`archie trace`](../cli/trace.md). Reports the chain of inherited
+Mirrors [`arky trace`](../cli/trace.md). Reports the chain of inherited
 properties for one file: which folder index files above it declare properties,
 what those properties are, and whether the file carries them.
 
@@ -209,12 +209,12 @@ what those properties are, and whether the file carries them.
 | `file` | string, required | The file whose chain is reported. |
 
 **Returns.** The chain itself. The command draws it as an indented tree, shown on
-[archie trace](../cli/trace.md); *the form a tool call returns it in is not yet
+[arky trace](../cli/trace.md); *the form a tool call returns it in is not yet
 specified.*
 
 ## export
 
-Mirrors [`archie export`](../cli/export.md). Serializes a corpus so another
+Mirrors [`arky export`](../cli/export.md). Serializes a corpus so another
 program can read it.
 
 | Parameter | Type | Description |
@@ -227,14 +227,14 @@ program can read it.
 frontmatter, its observations — each carrying a category, its content, and its
 tags — and its relations, each carrying a type and its targets; and beside that
 list a graph in which each resource is a node and each relation an edge carrying
-its type. It is shown in full on [archie export](../cli/export.md).
+its type. It is shown in full on [arky export](../cli/export.md).
 
 *What happens when `include_content` and `only_metadata` are both given is not
 yet specified.*
 
 ## import
 
-Mirrors [`archie import`](../cli/import.md). Pulls items in from a source outside
+Mirrors [`arky import`](../cli/import.md). Pulls items in from a source outside
 a corpus and writes them into it.
 
 | Parameter | Type | Description |
@@ -251,11 +251,11 @@ tool call has nowhere to put a browser sign-in.*
 
 ## Commands with no tool
 
-- **`archie help`.** A client asks the server for its tool list and receives the
+- **`arky help`.** A client asks the server for its tool list and receives the
   tools with their parameters, so the help command has no counterpart here.
 - **The command that starts the server.** A server does not expose the command
   that starts it.
-- **Structural operations.** Move, rename, archive, and merge are archie's
+- **Structural operations.** Move, rename, archive, and merge are arky's
   territory and have no command spelling, so no tool name follows from mirroring.
   *Their tools are not yet specified.* See
   [Structural operations](../cli/structural-operations.md).
@@ -285,4 +285,4 @@ tools.
 - [Exit codes](../exit-codes.md) — the code table.
 - [Query grammar](../query-grammar.md) — the expression language behind `query`,
   `search`, and the path given to `write`.
-- [Use archie from an agent](../../guides/use-from-an-agent.md) — the how-to.
+- [Use arky from an agent](../../guides/use-from-an-agent.md) — the how-to.

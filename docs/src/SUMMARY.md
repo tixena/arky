@@ -4,7 +4,7 @@
 
 # Tutorial
 
-- [A first session with archie](tutorial/first-session.md)
+- [A first session with arky](tutorial/first-session.md)
 
 # Guides
 
@@ -16,27 +16,27 @@
 - [Move and merge with link integrity](guides/move-and-merge-with-links.md)
 - [Link resources](guides/link-resources.md)
 - [Choose a backend](guides/choose-a-backend.md)
-- [Use archie from an agent](guides/use-from-an-agent.md)
-- [Run archie in continuous integration](guides/run-in-ci.md)
+- [Use arky from an agent](guides/use-from-an-agent.md)
+- [Run arky in continuous integration](guides/run-in-ci.md)
 
 # Reference
 
 - [Command-line interface](reference/cli/index.md)
-  - [archie ls](reference/cli/ls.md)
-  - [archie get](reference/cli/get.md)
-  - [archie query](reference/cli/query.md)
-  - [archie search](reference/cli/search.md)
-  - [archie write](reference/cli/write.md)
-  - [archie asset](reference/cli/asset.md)
-  - [archie rm](reference/cli/rm.md)
-  - [archie link](reference/cli/link.md)
-  - [archie check](reference/cli/check.md)
-  - [archie init](reference/cli/init.md)
-  - [archie fix](reference/cli/fix.md)
-  - [archie inbox](reference/cli/inbox.md)
-  - [archie trace](reference/cli/trace.md)
-  - [archie export](reference/cli/export.md)
-  - [archie import](reference/cli/import.md)
+  - [arky ls](reference/cli/ls.md)
+  - [arky get](reference/cli/get.md)
+  - [arky query](reference/cli/query.md)
+  - [arky search](reference/cli/search.md)
+  - [arky write](reference/cli/write.md)
+  - [arky asset](reference/cli/asset.md)
+  - [arky rm](reference/cli/rm.md)
+  - [arky link](reference/cli/link.md)
+  - [arky check](reference/cli/check.md)
+  - [arky init](reference/cli/init.md)
+  - [arky fix](reference/cli/fix.md)
+  - [arky inbox](reference/cli/inbox.md)
+  - [arky trace](reference/cli/trace.md)
+  - [arky export](reference/cli/export.md)
+  - [arky import](reference/cli/import.md)
   - [Structural operations](reference/cli/structural-operations.md)
 - [Model Context Protocol server](reference/mcp/index.md)
   - [Model Context Protocol tools](reference/mcp/tools.md)
@@ -50,7 +50,7 @@
 
 # Concepts
 
-- [archie and remargin](concepts/archie-and-remargin.md)
+- [arky and remargin](concepts/arky-and-remargin.md)
 - [Documents and schemas](concepts/documents-and-schemas.md)
 - [Shapes, schemas, and resource types](concepts/shapes-schemas-resource-types.md)
 - [Changes and versions](concepts/changes-and-versions.md)

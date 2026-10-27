@@ -5,7 +5,7 @@ for a person at a terminal; JavaScript Object Notation (JSON), for another
 program; and markdown, to be committed or pasted as a report. `--format` chooses
 one, and its default comes from the `[output]` table of the
 [configuration](config.md). JSON output and [exit codes](exit-codes.md) together
-are what make archie friendly to
+are what make arky friendly to
 [continuous integration](../guides/run-in-ci.md).
 
 ## Text
@@ -15,7 +15,7 @@ per level and a count of the files that passed. Color is on by default; the
 `color` key and the `NO_COLOR` environment variable each turn it off.
 
 ```console
-$ archie check
+$ arky check
 Scanning src/...
 Found 127 markdown files, 45 assets
 
@@ -88,7 +88,7 @@ A report document: a summary table of counts, then a section per level in which
 findings are grouped by message.
 
 ```markdown
-# Archie Report
+# Arky Report
 
 Generated: 2025-12-23 10:30:00
 
@@ -116,14 +116,14 @@ Generated: 2025-12-23 10:30:00
 
 The three formats belong to the validation run. Three commands write output of
 their own, in one form each: the inheritance chain of
-[archie trace](cli/trace.md), the proposal screen of
-[archie inbox](cli/inbox.md), and the export document of
-[archie export](cli/export.md). The
+[arky trace](cli/trace.md), the proposal screen of
+[arky inbox](cli/inbox.md), and the export document of
+[arky export](cli/export.md). The
 [Model Context Protocol server](mcp/index.md) returns the report as data.
 
 ## Not yet specified
 
-- What `archie ls`, `archie get`, `archie link`, `archie rm`, and `archie init`
+- What `arky ls`, `arky get`, `arky link`, `arky rm`, and `arky init`
   print.
 - What a query prints, and what a projection produces. See
   [Query grammar](query-grammar.md).

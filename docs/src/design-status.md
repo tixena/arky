@@ -32,27 +32,27 @@ Each line is one question. No page in this book answers any of them.
 
 - Whether the engine's library interface is designed first and the command line
   is a thin shell over it, or the command line is an interface in its own right.
-- Whether the command line or the Model Context Protocol server is archie's
+- Whether the command line or the Model Context Protocol server is arky's
   primary surface.
-- What it means mechanically for archie to be remargin's core: whether remargin
-  depends on archie as a library, is rewritten on archie's model, or is absorbed
+- What it means mechanically for arky to be remargin's core: whether remargin
+  depends on arky as a library, is rewritten on arky's model, or is absorbed
   into it.
 - Which of remargin's parts — threaded comments, identities and signatures,
   permission realms, the protocol server, the command line, and the editor
-  plugin — stay remargin's and which become archie's.
+  plugin — stay remargin's and which become arky's.
 - Whether the system ends with one Model Context Protocol server or two.
 - Whether the maintenance commands that serve a whole corpus — inbox
-  classification and import from an external source — belong in archie, in a
+  classification and import from an external source — belong in arky, in a
   separate application built on the engine, or nowhere.
 - Whether resource types carrying declared actions become a general platform for
   building small systems, and what an agent is permitted to do when it runs an
   action.
-- How far one corpus's conventions harden into archie's defaults, and how much
-  archie stays generic for corpora organized differently.
+- How far one corpus's conventions harden into arky's defaults, and how much
+  arky stays generic for corpora organized differently.
 
 ### The command set
 
-- Whether the validation run is spelled `archie check` or `archie lint`.
+- Whether the validation run is spelled `arky check` or `arky lint`.
 - Whether a query takes its expression and its path as positional arguments, or
   its expression as a named option with no path.
 - Whether repair is a command of its own or a flag on the validation run.
@@ -71,10 +71,10 @@ Each line is one question. No page in this book answers any of them.
   inbound links to what was removed.
 - Whether a write is previewed before it commits, and whether the preview is an
   option on the command or a separate call returning the change.
-- Whether reading a document's history is part of archie's surface, and what a
+- Whether reading a document's history is part of arky's surface, and what a
   reader asks for: a whole chain, one change, or a difference between two
   versions.
-- Whether archie prescribes an order for bringing a new corpus under it.
+- Whether arky prescribes an order for bringing a new corpus under it.
 
 ### The query, path, and search languages
 
@@ -100,14 +100,14 @@ Each line is one question. No page in this book answers any of them.
 
 - Whether "shape" and "schema" name one object or two, and how one resource type
   extends another in those terms.
-- How resource types declared by remargin reach archie's linter: passed at call
-  time, kept in files archie reads, or held in archie's configuration.
+- How resource types declared by remargin reach arky's linter: passed at call
+  time, kept in files arky reads, or held in arky's configuration.
 - Whether the strict and loose modes belong to the shape or to the check.
 - What the linter reports when a document fails a shape its owner declared.
 - Which rule names, levels, and messages survive once every rule follows from a
   shape.
 - Whether a folder's `allows` block survives, becomes a shape, or moves out of
-  archie with the resource types.
+  arky with the resource types.
 - Whether inheritance stays a folder mechanism at all, and whether an `inherits`
   block in a folder's index file is how it is expressed.
 
@@ -115,9 +115,9 @@ Each line is one question. No page in this book answers any of them.
 
 - Whether a change object is a patch or an operation over the document tree,
   whether it is identified by a content hash or a sequence number, and whether
-  the chain is archie's responsibility or the backend's.
+  the chain is arky's responsibility or the backend's.
 - What happens when replay is not byte-identical, as when a document has been
-  edited outside archie.
+  edited outside arky.
 - Whether a backend stores documents, change objects, or both.
 - Whether a backend declares its capabilities up front, or an unsupported
   operation is discovered only by attempting it.
@@ -134,7 +134,7 @@ Each line is one question. No page in this book answers any of them.
   and what the link target is when a resource is a folder rather than a file.
 - Whether a link run has a dry run, an edit report format, and a guard against
   running over uncommitted changes.
-- Whether archie builds a knowledge graph of typed edges between resources or
+- Whether arky builds a knowledge graph of typed edges between resources or
   only an inheritance tree.
 - How a relation target written as a name resolves to a file.
 - Whether the set of built-in relation types is closed, given that a proposal may
@@ -145,7 +145,7 @@ Each line is one question. No page in this book answers any of them.
 
 - Whether a missing frontmatter block can be repaired without a person, given
   that the repair list omits it while the finding is marked repairable.
-- Whether archie supports an adoption path for a corpus that has never been
+- Whether arky supports an adoption path for a corpus that has never been
   checked, including a way to record which existing findings are accepted.
 - What the validation run returns when the failure level is `any` and the only
   findings are informational.
@@ -171,7 +171,7 @@ Each line is one question. No page in this book answers any of them.
 
 - Whether one configuration may cover more than one corpus.
 - Whether the root table keeps its name and whether Obsidian's own folder stays
-  in the default ignore list, now that archie requires no particular editor.
+  in the default ignore list, now that arky requires no particular editor.
 - How authentication against an external task source is handled.
 
 ### The Model Context Protocol server
@@ -195,7 +195,7 @@ Each line is one question. No page in this book answers any of them.
 
 ### Distribution and performance
 
-- How archie is obtained — a published package, a release artifact, or a
+- How arky is obtained — a published package, a release artifact, or a
   container image — and whether it ships a continuous-integration workflow, a
   pre-commit hook, and shell completions.
 - The performance goals for the parser.

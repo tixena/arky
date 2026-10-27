@@ -11,7 +11,7 @@ A validation run returns one of six exit codes.
 | 4 | File system error |
 | 5 | Language-model provider error |
 
-Exit codes together with [JSON output](output-formats.md) are what make archie
+Exit codes together with [JSON output](output-formats.md) are what make arky
 friendly to [continuous integration](../guides/run-in-ci.md).
 
 ## What decides between 0, 1, and 2
@@ -29,14 +29,14 @@ code at all, are not yet specified.*
 
 Code 3 covers an error in the [configuration](config.md), code 4 a file system
 error, and code 5 an error from the language-model provider. Code 5 belongs to
-the classification of inbox captures; see [archie inbox](cli/inbox.md).
+the classification of inbox captures; see [arky inbox](cli/inbox.md).
 
 *What counts as each — whether a missing configuration file is a configuration
 error or a file system error, for instance — is not yet specified.*
 
 ## get and write
 
-[`archie get`](cli/get.md#exit-codes) and [`archie write`](cli/write.md#exit-codes)
+[`arky get`](cli/get.md#exit-codes) and [`arky write`](cli/write.md#exit-codes)
 return one of six exit codes of their own.
 
 | Code | Meaning |
@@ -44,11 +44,11 @@ return one of six exit codes of their own.
 | 0 | Success. |
 | 1 | The document could not be read or written in the form: not UTF-8, not JSON, not this version of the binary form, or a value the frontmatter syntax cannot hold. Without `--allow-missing`, a file the document embeds that is missing, or an embed that leaves the document's folder. |
 | 2 | The command line is wrong: an unknown option, a missing path, a value an option does not take, `--embed` without `--output` or with a form other than markdown, or a path that cannot name a file, such as `/`. |
-| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARCHIE_MONGODB_URI` or `ARCHIE_MONGODB_BUCKET` for `--store mongodb:`, or `ARCHIE_MINIO_ENDPOINT` for `--store minio:`, or the store is not built into this archie. |
+| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARKY_MONGODB_URI` or `ARKY_MONGODB_BUCKET` for `--store mongodb:`, or `ARKY_MINIO_ENDPOINT` for `--store minio:`, or the store is not built into this arky. |
 | 4 | The store failed: a file system error, such as a folder that is not writable or a path that is a folder, a MongoDB or MinIO server that cannot be reached, or a MinIO server that refuses the keys. A failure to write standard output is code 4 too. |
 | 6 | No file at the path. |
 
-For `archie write`, a failure to read standard input is code 4 too, and code 6 is
+For `arky write`, a failure to read standard input is code 4 too, and code 6 is
 no file at the path of `--input`.
 
 ## What an error message says
@@ -57,7 +57,7 @@ An error message is clear about what is wrong, specific about where, and
 actionable.
 
 ```console
-$ archie check
+$ arky check
 ERROR: Invalid type 'meeting'
   → src/notes/standup.md:2
 
@@ -78,7 +78,7 @@ are not yet specified.*
 ## Not yet specified
 
 - Codes for the commands that read, write, and search rather than validate, other
-  than `archie get` and `archie write`, whose codes are under
+  than `arky get` and `arky write`, whose codes are under
   [get and write](#get-and-write). The first table is written in the language of a
   validation run. See the [Command-line interface](cli/index.md).
 - Whether a query that matched nothing returns success or a code of its own.

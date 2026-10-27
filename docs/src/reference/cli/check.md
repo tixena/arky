@@ -1,13 +1,13 @@
-# archie check
+# arky check
 
-`archie check` is the validation run: it reads a corpus, applies rules to it, and
+`arky check` is the validation run: it reads a corpus, applies rules to it, and
 reports what it finds. It never modifies a file; repairing is
-[`archie fix`](fix.md).
+[`arky fix`](fix.md).
 
 ## Synopsis
 
 ```console
-$ archie check [PATH]
+$ arky check [PATH]
 ```
 
 `[PATH]` is the path to validate; it is optional, and its default comes from the
@@ -34,7 +34,7 @@ The rules come from schemas rather than a fixed catalog. A shape may be declared
 for a whole markdown document or a sub-part of one; a schema has a strict mode
 that rejects content outside it and a loose mode that lets it through, and no
 stripping mode. Resource types are declared by remargin, per corpus, and a type
-may extend another; archie holds only the means to enforce them.
+may extend another; arky holds only the means to enforce them.
 
 ## The rules
 
@@ -56,16 +56,16 @@ may extend another; archie holds only the means to enforce them.
 ## Examples
 
 ```console
-$ archie check
-$ archie check src/work/
-$ archie check --format json > report.json
-$ archie check --rule frontmatter --rule type
+$ arky check
+$ arky check src/work/
+$ arky check --format json > report.json
+$ arky check --rule frontmatter --rule type
 ```
 
 The text output:
 
 ```console
-$ archie check
+$ arky check
 Scanning src/...
 Found 127 markdown files, 45 assets
 
@@ -112,7 +112,7 @@ Code 5 cannot arise from a validation run, which uses no language model.
 
 ## Not yet specified
 
-- The command's name: `archie check` and `archie lint folder/` both stand for
+- The command's name: `arky check` and `arky lint folder/` both stand for
   this run.
 - Whether `--rule` takes a rule name, a rule category, or either. The example
   above passes `frontmatter` and `type`, which are categories.
@@ -126,7 +126,7 @@ See [Design status](../../design-status.md) for the open questions here.
 
 - [Validation rules](../validation-rules.md) — every rule with its message text.
 - [Shape language](../shape-language.md) — the schemas the rules follow from.
-- [archie fix](fix.md) — the repair run.
+- [arky fix](fix.md) — the repair run.
 - [Output formats](../output-formats.md) — the same run as JSON and as markdown.
 - [Exit codes](../exit-codes.md) — the code table.
 - [Lint a vault](../../guides/lint-a-vault.md) — the how-to.

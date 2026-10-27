@@ -3,7 +3,7 @@
 Frontmatter describes a document as a whole. Knowledge patterns describe things
 *inside* it: a fact worth extracting, a decision that was made, a typed connection
 to another resource. They are ordinary markdown list lines that follow a
-convention, so a reader sees a bulleted list and archie sees structured data.
+convention, so a reader sees a bulleted list and arky sees structured data.
 
 ## Observations
 
@@ -54,7 +54,7 @@ the set: `depends_on` inverts to `dependency_of`, `blocks` to `blocked_by`,
 Both patterns may appear anywhere in a document. Grouping them under their own
 headings ahead of the prose is a convention, not a rule.
 
-## What archie checks
+## What arky checks
 
 Three checks run over the patterns, each with a severity configuration can set to
 off, informational, warning, or error.
@@ -74,13 +74,13 @@ block, alongside a switch that turns the whole area off — see
 [Configuration](../reference/config.md) and
 [Validation rules](../reference/validation-rules.md).
 
-## What archie extracts
+## What arky extracts
 
-`archie export` emits, for each file, its frontmatter, its observations with their
+`arky export` emits, for each file, its frontmatter, its observations with their
 categories and tags, and its relations with their types and targets. Alongside the
 per-file entries it emits a graph: a list of nodes, and a list of edges each
 carrying a source, a target, and the relation type connecting them. See
-[archie export](../reference/cli/export.md).
+[arky export](../reference/cli/export.md).
 
 ## Not yet specified
 
