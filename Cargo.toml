@@ -26,7 +26,7 @@ serde_stacker = "0.1"
 stacker = "0.1.25"
 
 # TypeScript type + Zod schema generation from Rust models
-tixschema = { git = "https://github.com/tixena/tixschema.git", features = ["chrono", "indexmap"] }
+tixschema = { version = "0.1", features = ["chrono", "indexmap"] }
 
 # Binary form, read in place
 rkyv = { version = "0.8", default-features = false, features = ["std", "bytecheck", "indexmap-2"] }

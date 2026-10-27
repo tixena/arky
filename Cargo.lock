@@ -2941,7 +2941,8 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 [[package]]
 name = "tixschema"
 version = "0.1.0"
-source = "git+https://github.com/tixena/tixschema.git#aa82e14691c9cd6f10aa72bc749863e00ebcb04c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "944f9d87b910fe3e32ac19c95767e26c4dc1531d7b9cfd0122191dfb70fbd465"
 dependencies = [
  "log",
  "proc-macro2",
