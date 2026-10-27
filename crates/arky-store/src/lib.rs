@@ -43,14 +43,14 @@
 //!
 //! # Getting started
 //!
-//! Add arky-store and arky from their git repository, arky for the forms and
+//! Add arky-store and arky, arky for the forms and
 //! the write options. Add os-shim for a `System`, and tokio to run the
 //! futures:
 //!
 //! ```toml
 //! [dependencies]
-//! arky = { git = "https://github.com/tixena/arky" }
-//! arky-store = { git = "https://github.com/tixena/arky" }
+//! arky = "0.1"
+//! arky-store = "0.1"
 //! os-shim = "0.1"
 //! tokio = { version = "1", features = ["rt", "macros"] }
 //! ```
@@ -359,7 +359,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! ```toml
 //! [dependencies]
-//! arky-store = { git = "https://github.com/tixena/arky", features = ["mongodb"] }
+//! arky-store = { version = "0.1", features = ["mongodb"] }
 //! bson = { version = "3.1", features = ["serde"] }
 //! os-shim = { version = "0.1", features = ["minio"] }
 //! ```
