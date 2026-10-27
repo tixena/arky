@@ -9,6 +9,7 @@ repository.workspace = true
 license.workspace = true
 keywords = ["markdown", "storage", "mongodb", "minio"]
 categories = ["database", "filesystem"]
+include = ["/src/**/*.rs", "/LICENSE"]
 
 [lints]
 workspace = true

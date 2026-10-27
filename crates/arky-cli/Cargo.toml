@@ -9,6 +9,7 @@ repository.workspace = true
 license.workspace = true
 keywords = ["markdown", "cli", "frontmatter"]
 categories = ["command-line-utilities", "text-processing"]
+include = ["/src/**/*.rs", "/LICENSE"]
 
 [[bin]]
 name = "arky"
