@@ -1,29 +1,44 @@
 //! Each sample is a tree written back to markdown: read from a source, or
 //! built, then written, then read again.
 
+#[cfg(feature = "binary-format")]
 use chrono::{FixedOffset, NaiveDate, NaiveTime, TimeZone as _};
 use indexmap::IndexMap;
+#[cfg(feature = "binary-format")]
 use rkyv::rancor::Error;
+#[cfg(feature = "binary-format")]
 use rkyv::util::AlignedVec;
+#[cfg(feature = "binary-format")]
 use rkyv::with::With;
 
+#[cfg(feature = "binary-format")]
+use crate::parser::ast::ArchivedRawDocument;
 use crate::parser::ast::{
-    Alignment, ArchivedRawDocument, Args, Block, Code, CodeBlock, Document, Emphasis,
-    FrontmatterFormat, Heading, Inline, Item, Kind, Line, LineBreak, Link, LinkForm, LinkInline,
-    LinkStrong, List, Mapping, MarkdownBlock, Paragraph, RawDocument, Section, Strong, Table,
-    TableCell, TableFormat, TableRow, Text, Value,
+    Alignment, Args, Block, Code, CodeBlock, Document, Emphasis, FrontmatterFormat, Heading,
+    Inline, Item, Kind, Line, LineBreak, Link, LinkForm, LinkInline, LinkStrong, List, Mapping,
+    MarkdownBlock, Paragraph, RawDocument, Section, Strong, Table, TableCell, TableFormat,
+    TableRow, Text, Value,
 };
 use crate::parser::error::{ParseError, RebuildError};
 use crate::parser::extension::{Construct, Context, Extension, Markdown, Plain, Written};
+#[cfg(feature = "binary-format")]
 use crate::parser::frontmatter::VALUE_CAP;
+#[cfg(feature = "binary-format")]
 use crate::parser::inline::INLINE_CAP;
+#[cfg(feature = "binary-format")]
 use crate::parser::lexer::BLOCK_CAP;
+#[cfg(feature = "binary-format")]
 use crate::parser::mirror::RawDocumentMirror;
+#[cfg(feature = "binary-format")]
 use crate::parser::tests::blocks::nested_grid_tables;
+#[cfg(feature = "binary-format")]
 use crate::parser::tests::json::unclaim;
+#[cfg(feature = "binary-format")]
 use crate::parser::tests::on_two_megabytes;
 use crate::parser::{ParseOptions, Parsed, parse, parse_with, rebuild_with};
-use crate::writer::{WriteError, WriteOptions, Writer, write, write_archived};
+#[cfg(feature = "binary-format")]
+use crate::writer::write_archived;
+use crate::writer::{WriteError, WriteOptions, Writer, write};
 
 /// Every file under `parser/tests/fixtures/`.
 const FIXTURES: [(&str, &str); 21] = [
@@ -128,6 +143,7 @@ const TOML_SAMPLE: &str =
 
 /// Sources of the constructs, and the guards around them, that the fixture
 /// files do not hold.
+#[cfg(feature = "binary-format")]
 const CONSTRUCTS: [&str; 28] = [
     "Title\n=====\n\nSub\n---\ntext\n\n# A\n\n#\n\nfoo\n",
     "Setext a  \nb\n===\n",
@@ -1136,6 +1152,7 @@ fn a_run_that_closes_a_mark_and_opens_the_next_opens_and_closes_where_it_stands(
     );
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn the_neighbours_of_a_mark_are_written_as_references_from_its_archived_tree_too() {
     let strong = |children| Inline::Strong(Strong::new(children));
@@ -1265,6 +1282,7 @@ fn an_emphasis_or_strong_that_writes_nothing_is_written_as_nothing() {
     }
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn an_emphasis_or_strong_that_writes_nothing_is_written_as_nothing_from_its_archived_tree_too() {
     for (built, expected) in empty_spans() {
@@ -1336,6 +1354,7 @@ fn a_paragraph_line_that_writes_nothing_is_not_written() {
     }
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn a_paragraph_line_that_writes_nothing_is_not_written_from_its_archived_tree_too() {
     for (built, expected) in empty_lines() {
@@ -1363,11 +1382,14 @@ fn the_lines_around_a_line_that_writes_nothing_read_back_as_one_paragraph() {
 fn a_strong_over_a_line_break_in_an_underlined_heading_keeps_its_marks() {
     let source = "**a\\\nb**\n===\n";
     assert_eq!(round_trip(source), source);
-    let bytes = archive(&parse(source).document);
-    assert_eq!(
-        write_archived(archived(&bytes), &WriteOptions::default()).unwrap(),
-        source
-    );
+    #[cfg(feature = "binary-format")]
+    {
+        let bytes = archive(&parse(source).document);
+        assert_eq!(
+            write_archived(archived(&bytes), &WriteOptions::default()).unwrap(),
+            source
+        );
+    }
 }
 
 #[test]
@@ -2183,16 +2205,19 @@ fn text_reads_back_as_the_same_text_whether_it_is_quoted_or_not() {
     }
 }
 
+#[cfg(feature = "binary-format")]
 /// The rkyv bytes of `document`.
 fn archive(document: &RawDocument) -> AlignedVec {
     rkyv::to_bytes::<Error>(With::<RawDocument, RawDocumentMirror>::cast(document)).unwrap()
 }
 
+#[cfg(feature = "binary-format")]
 /// The archived tree `bytes` hold, checked.
 fn archived(bytes: &[u8]) -> &ArchivedRawDocument {
     rkyv::access::<ArchivedRawDocument, Error>(bytes).unwrap()
 }
 
+#[cfg(feature = "binary-format")]
 /// Checks that the archived tree of `document` writes, with YAML and with
 /// TOML options, what `write` gives for `document` with every kind empty.
 fn writes_as_write_does(mut document: RawDocument, name: &str) {
@@ -2208,6 +2233,7 @@ fn writes_as_write_does(mut document: RawDocument, name: &str) {
     }
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn the_sample_is_written_from_its_archived_tree() {
     let parsed = parse("---\nstatus: open\n---\n# Task\n\n* item\n");
@@ -2218,6 +2244,7 @@ fn the_sample_is_written_from_its_archived_tree() {
     );
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn each_fixture_is_written_from_its_archived_tree_as_write_writes_it() {
     for (name, source) in FIXTURES {
@@ -2225,6 +2252,7 @@ fn each_fixture_is_written_from_its_archived_tree_as_write_writes_it() {
     }
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn each_construct_is_written_from_its_archived_tree_as_write_writes_it() {
     for source in CONSTRUCTS.into_iter().chain([OWNERS_SAMPLE, TOML_SAMPLE]) {
@@ -2275,6 +2303,7 @@ fn each_construct_is_written_from_its_archived_tree_as_write_writes_it() {
     }
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn each_value_is_written_from_its_archived_tree_as_write_writes_it() {
     let date = NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
@@ -2321,6 +2350,7 @@ fn each_value_is_written_from_its_archived_tree_as_write_writes_it() {
     }
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn the_tree_at_the_caps_is_written_from_its_archived_tree_as_write_writes_it() {
     on_two_megabytes(|| {
@@ -2344,6 +2374,7 @@ fn the_tree_at_the_caps_is_written_from_its_archived_tree_as_write_writes_it() {
     });
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn a_null_in_the_frontmatter_fails_the_archived_toml_write_with_the_error_write_gives() {
     let document = parse("---\nowner:\n  name: Ada\n  email: null\n---\n").document;
@@ -2355,6 +2386,7 @@ fn a_null_in_the_frontmatter_fails_the_archived_toml_write_with_the_error_write_
     assert_eq!(write(&document, &TOML), Err(null_error("owner.email")));
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn a_markdown_block_is_written_from_its_archived_tree_as_its_value() {
     let source = "```markdown\n* a\n```\n";
@@ -2370,6 +2402,7 @@ fn a_markdown_block_is_written_from_its_archived_tree_as_its_value() {
     );
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn an_invalid_document_is_written_from_its_archived_tree_as_write_writes_it() {
     for source in [
@@ -2393,6 +2426,7 @@ fn an_invalid_document_is_written_from_its_archived_tree_as_write_writes_it() {
     writes_as_write_does(closing, "a text holding a line that would close it");
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn an_archived_date_out_of_chronos_range_fails_the_write_with_an_error_naming_its_key() {
     let days = 0x0012_3456_i32;

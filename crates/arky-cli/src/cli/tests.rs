@@ -51,7 +51,7 @@ fn the_short_and_long_options_parse() {
         "get",
         "a.md",
         "-f",
-        "binary",
+        "zip",
         "--frontmatter",
         "toml",
         "-o",
@@ -67,7 +67,7 @@ fn the_short_and_long_options_parse() {
             Command::Get {
                 allow_missing: true,
                 embed: false,
-                format: FormatArg::Binary,
+                format: FormatArg::Zip,
                 frontmatter: SyntaxArg::Toml,
                 output: Some(output),
                 path: _,
@@ -108,6 +108,7 @@ fn the_short_and_long_options_parse() {
 #[test]
 fn each_of_the_four_forms_parses_on_get_and_write_and_names_its_form() {
     let forms = [
+        #[cfg(feature = "binary-format")]
         ("binary", Form::Binary),
         ("json", Form::Json),
         ("markdown", Form::Markdown),

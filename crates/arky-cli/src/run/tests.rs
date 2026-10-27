@@ -44,7 +44,13 @@ const FIXTURES: [&str; 21] = [
     include_str!("../../../arky/src/parser/tests/fixtures/zola_page.md"),
 ];
 
-const FORMS: [&str; 4] = ["markdown", "json", "binary", "zip"];
+const FORMS: &[&str] = &[
+    "markdown",
+    "json",
+    #[cfg(feature = "binary-format")]
+    "binary",
+    "zip",
+];
 
 const JEKYLL_POST: &str = FIXTURES[10];
 
@@ -235,7 +241,7 @@ fn each_fixture_copied_in_each_form_is_arkys_form_and_a_second_copy_changes_noth
         let system = vault(source)
             .with_file("/vault/tree-sketch.png", PNG)
             .unwrap();
-        for form in FORMS {
+        for form in FORMS.iter().copied() {
             let expected = if form == "json" {
                 &json_form
             } else {
@@ -740,7 +746,7 @@ fn an_embedded_output_is_one_file_holding_each_embed_as_a_named_data_uri() {
 #[test]
 fn each_form_through_standard_output_carries_each_file_to_the_copy() {
     let system = report();
-    for form in FORMS {
+    for form in FORMS.iter().copied() {
         let got = arky(&system, &["get", "notes/report.md", "-f", form], b"");
         assert_eq!(got.code, ExitCode::SUCCESS, "{form}: {}", got.stderr);
         let copy = format!("{form}/report.md");
@@ -764,7 +770,12 @@ fn each_form_through_standard_output_carries_each_file_to_the_copy() {
 #[test]
 fn binary_json_and_zip_to_an_output_are_bytes_a_write_from_that_input_reads_with_each_file() {
     let system = report();
-    for form in ["binary", "json", "zip"] {
+    for form in [
+        #[cfg(feature = "binary-format")]
+        "binary",
+        "json",
+        "zip",
+    ] {
         let output = format!("out/report.{form}");
         let got = arky(
             &system,
@@ -784,7 +795,12 @@ fn binary_json_and_zip_to_an_output_are_bytes_a_write_from_that_input_reads_with
         reported(&system, &format!("/vault/{copy}"));
     }
     assert!(!system.exists(Path::new("/vault/out/media")).unwrap());
-    for form in ["binary", "json"] {
+    let forms: &[&str] = &[
+        #[cfg(feature = "binary-format")]
+        "binary",
+        "json",
+    ];
+    for form in forms.iter().copied() {
         let streamed = arky(&system, &["get", "notes/report.md", "-f", form], b"");
         let output = format!("/vault/out/report.{form}");
         assert_eq!(bytes_of(&system, &output), streamed.stdout, "{form}");
@@ -889,7 +905,12 @@ fn an_embed_that_leaves_the_folder_fails_with_code_1_and_allow_missing_keeps_it(
 #[test]
 fn embed_with_a_form_other_than_markdown_exits_2_and_writes_nothing() {
     let system = report();
-    for form in ["binary", "json", "zip"] {
+    for form in [
+        #[cfg(feature = "binary-format")]
+        "binary",
+        "json",
+        "zip",
+    ] {
         let output = format!("r.{form}");
         let ran = arky(
             &system,

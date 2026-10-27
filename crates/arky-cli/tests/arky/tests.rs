@@ -23,7 +23,13 @@ const FIXTURES: &str = concat!(
     "/../arky/src/parser/tests/fixtures"
 );
 
-const FORMS: [&str; 4] = ["markdown", "json", "binary", "zip"];
+const FORMS: &[&str] = &[
+    "markdown",
+    "json",
+    #[cfg(feature = "binary-format")]
+    "binary",
+    "zip",
+];
 
 /// The four variables a `MinIO` store reads: a server no process listens on,
 /// whose connection is refused at once, and keys no output may show.
@@ -191,7 +197,7 @@ fn the_copy_of_each_fixture_in_each_form_is_arkys_form_and_a_second_copy_changes
         fs::write(root.join(&name), &source).unwrap();
         let arky_form = arkys_form(&source, FrontmatterFormat::Yaml);
         let json_form = arkys_form_through_json(&source);
-        for form in FORMS {
+        for form in FORMS.iter().copied() {
             let expected = if form == "json" {
                 &json_form
             } else {
@@ -219,7 +225,7 @@ fn a_pipe_between_two_runs_copies_the_file_in_each_form() {
     let root = folder.path();
     let source = fs::read_to_string(Path::new(FIXTURES).join("hugo_post.md")).unwrap();
     fs::write(root.join("a.md"), &source).unwrap();
-    for form in FORMS {
+    for form in FORMS.iter().copied() {
         let target = format!("{form}.md");
         let mut get = Process::new(cargo_bin("arky"))
             .current_dir(root)
@@ -591,7 +597,7 @@ fn a_pipe_between_two_runs_carries_each_file_to_the_copy_in_each_form() {
     let folder = folder();
     let root = folder.path();
     report(root, "notes/report.md");
-    for form in FORMS {
+    for form in FORMS.iter().copied() {
         let copy = format!("{form}/report.md");
         let mut get = Process::new(cargo_bin("arky"))
             .current_dir(root)

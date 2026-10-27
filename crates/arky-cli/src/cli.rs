@@ -91,6 +91,7 @@ pub enum Command {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum FormatArg {
+    #[cfg(feature = "binary-format")]
     Binary,
     Json,
     Markdown,
@@ -100,6 +101,7 @@ pub enum FormatArg {
 impl From<FormatArg> for Form {
     fn from(format: FormatArg) -> Self {
         match format {
+            #[cfg(feature = "binary-format")]
             FormatArg::Binary => Self::Binary,
             FormatArg::Json => Self::Json,
             FormatArg::Markdown => Self::Markdown,

@@ -1,8 +1,8 @@
 //! The tree written to BSON and read back with plain serde, and the typed
 //! filters its types build.
 
+use super::FIXTURES;
 use super::json::unclaim;
-use super::rkyv::FIXTURES;
 use crate::parser::ast::RawDocument;
 use crate::parser::parse;
 

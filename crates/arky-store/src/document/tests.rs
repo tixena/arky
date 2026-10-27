@@ -5,7 +5,9 @@ use alloc::collections::BTreeMap;
 use std::path::PathBuf;
 
 use arky::bundle::{BundledDocument, BundledDocumentError, Missing};
-use arky::forms::{BINARY_MAGIC, BINARY_VERSION, DecodeError, Form, FormError, encode};
+#[cfg(feature = "binary-format")]
+use arky::forms::{BINARY_MAGIC, BINARY_VERSION};
+use arky::forms::{DecodeError, Form, FormError, encode};
 use arky::parser::ast::{FrontmatterFormat, RawDocument};
 use arky::parser::{from_json, parse, to_json};
 use arky::writer::{WriteOptions, write};
@@ -43,7 +45,12 @@ const FIXTURES: [&str; 21] = [
     include_str!("../../../arky/src/parser/tests/fixtures/zola_page.md"),
 ];
 
-const FORMS: [Form; 3] = [Form::Json, Form::Markdown, Form::Binary];
+const FORMS: &[Form] = &[
+    Form::Json,
+    Form::Markdown,
+    #[cfg(feature = "binary-format")]
+    Form::Binary,
+];
 
 const INTRO: &str = "Intro ![chart](../media/chart.png)\n";
 
@@ -159,7 +166,7 @@ async fn each_fixture_copied(store: &AnyStore<'_>) {
             .write(&file, source.as_bytes(), &Precondition::None)
             .await
             .unwrap();
-        for form in FORMS {
+        for form in FORMS.iter().copied() {
             let first = StorePath::new(&format!("{form:?}/{index}.md")).unwrap();
             let second = StorePath::new(&format!("{form:?}/again/{index}.md")).unwrap();
             let revision = copy(store, &file, &first, form).await;
@@ -299,7 +306,7 @@ async fn above_the_folder(store: &AnyStore<'_>) {
     .await
     .unwrap();
     assert_eq!(in_form(store, &path, Form::Markdown, &options).await, text);
-    for form in FORMS {
+    for form in FORMS.iter().copied() {
         let copied = StorePath::new(&format!("{form:?}/a.md")).unwrap();
         copy(store, &path, &copied, form).await;
         assert_eq!(store.read(&copied).await.unwrap().bytes, text, "{form:?}");
@@ -311,6 +318,7 @@ fn a_put_then_a_get_of_an_embed_above_the_folder_gives_back_its_text() {
     on_both(&above_the_folder);
 }
 
+#[cfg(feature = "binary-format")]
 async fn binary_copied(store: &AnyStore<'_>) {
     let options = WriteOptions::default();
     let path = StorePath::new("a.md").unwrap();
@@ -337,6 +345,7 @@ async fn binary_copied(store: &AnyStore<'_>) {
     assert_eq!(store.read(&path).await.unwrap().bytes, b"- item\n");
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn a_get_in_binary_puts_back_as_arkys_form() {
     on_both(&binary_copied);
@@ -345,7 +354,13 @@ fn a_get_in_binary_puts_back_as_arkys_form() {
 async fn each_form_beside(store: &AnyStore<'_>) {
     let options = WriteOptions::default();
     let given = bundle_of(REPORT, &[("media/logo.png", PNG)]);
-    for form in [Form::Binary, Form::Json, Form::Markdown, Form::Zip] {
+    for form in [
+        #[cfg(feature = "binary-format")]
+        Form::Binary,
+        Form::Json,
+        Form::Markdown,
+        Form::Zip,
+    ] {
         let bytes = encode(&given, form, &options).unwrap();
         let folder = StorePath::new(&format!("{form:?}")).unwrap();
         let path = StorePath::new(&format!("{form:?}/notes/report.md")).unwrap();
@@ -537,7 +552,13 @@ fn a_bundle_cannot_hold_a_file_named_with_a_backslash_and_one_in_an_address_is_p
 async fn backslash_beside(store: &AnyStore<'_>) {
     let options = WriteOptions::default();
     let given = bundle_of("![x](media\\logo.png)\n", &[("media/logo.png", PNG)]);
-    for form in [Form::Binary, Form::Json, Form::Markdown, Form::Zip] {
+    for form in [
+        #[cfg(feature = "binary-format")]
+        Form::Binary,
+        Form::Json,
+        Form::Markdown,
+        Form::Zip,
+    ] {
         let bytes = encode(&given, form, &options).unwrap();
         let path = StorePath::new(&format!("{form:?}/notes/report.md")).unwrap();
         put(

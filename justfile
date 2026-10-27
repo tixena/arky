@@ -8,6 +8,8 @@ lint: lint-rust
 lint-rust:
     cargo clippy --workspace --all-targets -- -D warnings
     cargo clippy --workspace --all-targets --all-features -- -D warnings
+    cargo clippy -p arky --all-targets -- -D warnings
+    cargo clippy -p arky --all-targets --features binary-format -- -D warnings
     cargo clippy -p arky-cli --all-targets --no-default-features -- -D warnings
     cargo fmt --all --check
 

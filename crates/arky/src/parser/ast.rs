@@ -7,17 +7,23 @@ mod value_serde;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use indexmap::IndexMap;
+#[cfg(feature = "binary-format")]
 use rkyv::rancor::Source;
+#[cfg(feature = "binary-format")]
 use rkyv::ser::{Allocator, Writer};
+#[cfg(feature = "binary-format")]
 use rkyv::validation::ArchiveContext;
+#[cfg(feature = "binary-format")]
 use rkyv::with::{Map, Skip};
 // tixschema takes every derive named `Deserialize` off a model whose read it
 // writes, rkyv's with serde's.
+#[cfg(feature = "binary-format")]
 use rkyv::Deserialize as RkyvDeserialize;
 use serde::{Deserialize, Deserializer, Serialize};
 use tixschema::model_schema;
 
 use crate::parser::extension::{Extension, Markdown, markdown_schema};
+#[cfg(feature = "binary-format")]
 use crate::parser::mirror::{
     self, AlignmentMirror, ArgsMirror, BlockMirror, ContinuesMirror, FrontmatterFormatMirror,
     InlineMirror, LinkFormMirror, LinkInlineMirror, MappingMirror, TableFormatMirror,
@@ -79,15 +85,18 @@ where
 }
 
 /// A `RawDocument` as rkyv archives it.
+#[cfg(feature = "binary-format")]
 pub type ArchivedRawDocument<E = Markdown> = mirror::ArchivedRawDocumentMirror<E>;
 
 /// A document whose frontmatter no entry of reads: its body, claimed by
 /// arky's markdown extension alone, and the frontmatter as written.
 #[model_schema(enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize),
+    rkyv(attr(non_exhaustive))
 )]
-#[rkyv(attr(non_exhaustive))]
 #[non_exhaustive]
 pub struct InvalidDocument {
     #[serde(rename = "bd")]
@@ -107,24 +116,18 @@ impl InvalidDocument {
 /// A frontmatter no entry of reads: the reader's message, its syntax, and its
 /// text as written, so that a write gives it back.
 #[model_schema(enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize),
+    rkyv(attr(non_exhaustive))
 )]
-#[rkyv(attr(non_exhaustive))]
 #[non_exhaustive]
 pub struct InvalidFrontmatter {
     #[serde(rename = "er")]
     pub error: String,
     #[serde(rename = "fo")]
-    #[rkyv(with = FrontmatterFormatMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = FrontmatterFormatMirror))]
     pub format: FrontmatterFormat,
     #[serde(rename = "tx")]
     pub text: String,
@@ -145,11 +148,13 @@ impl InvalidFrontmatter {
 
 /// A markdown file whose frontmatter, if it has one, reads.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Document<E = Markdown>
 where
@@ -159,10 +164,10 @@ where
     pub body: MarkdownBlock<E>,
     #[serde(rename = "data")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[rkyv(with = Map<MappingMirror>)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Map<MappingMirror>))]
     pub frontmatter: Option<Mapping>,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -193,6 +198,7 @@ pub enum FrontmatterFormat {
 }
 
 /// A `FrontmatterFormat` as rkyv archives it.
+#[cfg(feature = "binary-format")]
 pub type ArchivedFrontmatterFormat = mirror::ArchivedFrontmatterFormatMirror;
 
 /// Keys and their values, in the order they were written. A key appears once.
@@ -242,23 +248,26 @@ pub enum Value {
 }
 
 /// A `Value` as rkyv archives it.
+#[cfg(feature = "binary-format")]
 pub type ArchivedValue = mirror::ArchivedValueMirror;
 
 /// A stretch of markdown read by the same rules: the body, a list item's
 /// content, a table cell's content, a markdown code block's content.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct MarkdownBlock<E = Markdown>
 where
     E: Extension,
 {
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "se")]
     #[serde(deserialize_with = "grown")]
@@ -299,22 +308,25 @@ where
 }
 
 /// A `Block` as rkyv archives it.
+#[cfg(feature = "binary-format")]
 pub type ArchivedBlock<E = Markdown> = mirror::ArchivedBlockMirror<E>;
 
 /// Quoted text, without its `>` marks. Nothing inside it is read.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct BlockQuote<E = Markdown>
 where
     E: Extension,
 {
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "v")]
     pub value: String,
@@ -337,21 +349,23 @@ where
 /// Raw HTML, as written: a block, or an inline node such as `<span>`. A
 /// block's `continues` is always `Continues::Neither`.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Html<E = Markdown>
 where
     E: Extension,
 {
     #[serde(rename = "co")]
-    #[rkyv(with = ContinuesMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "v")]
     pub value: String,
@@ -374,18 +388,20 @@ where
 
 /// A line of three or more `-`, `*` or `_`, such as `---`.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct ThematicBreak<E = Markdown>
 where
     E: Extension,
 {
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -404,31 +420,33 @@ where
 /// `heading` is `None` when no heading line was written, and a heading line
 /// with no text is a heading with no children.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source))]
-#[rkyv(deserialize_bounds(__D::Error: Source))]
-#[rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source)))]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(deserialize_bounds(__D::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source))))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Section<E = Markdown>
 where
     E: Extension,
 {
     #[serde(rename = "bl")]
-    #[rkyv(omit_bounds, with = Map<BlockMirror<E>>)]
+    #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<BlockMirror<E>>))]
     pub blocks: Vec<Block<E>>,
     #[serde(rename = "hd")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heading: Option<Heading<E>>,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "ss")]
     #[serde(deserialize_with = "grown")]
-    #[rkyv(omit_bounds)]
+    #[cfg_attr(feature = "binary-format", rkyv(omit_bounds))]
     pub subsections: Vec<Self>,
 }
 
@@ -455,21 +473,23 @@ where
 
 /// A heading line, such as `# Ship parser`. An empty heading has no children.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Heading<E = Markdown>
 where
     E: Extension,
 {
     #[serde(rename = "ch")]
-    #[rkyv(with = Map<InlineMirror<E>>)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Map<InlineMirror<E>>))]
     pub children: Vec<Inline<E>>,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -489,18 +509,20 @@ where
 
 /// A set of lines, ended by a blank line.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Paragraph<E = Markdown>
 where
     E: Extension,
 {
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "li")]
     pub lines: Vec<Line<E>>,
@@ -522,21 +544,23 @@ where
 
 /// One line of a paragraph and the inline nodes written on it.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Line<E = Markdown>
 where
     E: Extension,
 {
     #[serde(rename = "ch")]
-    #[rkyv(with = Map<InlineMirror<E>>)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Map<InlineMirror<E>>))]
     pub children: Vec<Inline<E>>,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -561,11 +585,13 @@ where
 /// bullet list. `loose` is set when a blank line separates two items, or two
 /// blocks of one item.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct List<E = Markdown>
 where
@@ -574,7 +600,7 @@ where
     #[serde(rename = "it")]
     pub items: Vec<Item<E>>,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "lo")]
     pub loose: bool,
@@ -602,11 +628,13 @@ where
 
 /// One entry of a list.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Item<E = Markdown>
 where
@@ -615,7 +643,7 @@ where
     #[serde(rename = "bd")]
     pub body: MarkdownBlock<E>,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -640,21 +668,23 @@ where
 /// text after the opening fence, is split into `language`, its first word,
 /// `None` when there is no info string, and `args`, the rest.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct CodeBlock<E = Markdown>
 where
     E: Extension,
 {
     #[serde(rename = "ar")]
-    #[rkyv(with = ArgsMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = ArgsMirror))]
     pub args: Args,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "la")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -694,31 +724,34 @@ pub enum Args {
 }
 
 /// An `Args` as rkyv archives it.
+#[cfg(feature = "binary-format")]
 pub type ArchivedArgs = mirror::ArchivedArgsMirror;
 
 /// A table read from pipe, grid or simple table syntax. `head` holds the
 /// header rows, `rows` the rest.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Table<E = Markdown>
 where
     E: Extension,
 {
     #[serde(rename = "al")]
-    #[rkyv(with = Map<AlignmentMirror>)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Map<AlignmentMirror>))]
     pub alignments: Vec<Alignment>,
     #[serde(rename = "fo")]
-    #[rkyv(with = TableFormatMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = TableFormatMirror))]
     pub format: TableFormat,
     #[serde(rename = "he")]
     pub head: Vec<TableRow<E>>,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "ro")]
     pub rows: Vec<TableRow<E>>,
@@ -749,11 +782,13 @@ where
 
 /// One row of a table.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct TableRow<E = Markdown>
 where
@@ -762,7 +797,7 @@ where
     #[serde(rename = "ce")]
     pub cells: Vec<TableCell<E>>,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -782,11 +817,13 @@ where
 
 /// One cell of a table row.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct TableCell<E = Markdown>
 where
@@ -795,7 +832,7 @@ where
     #[serde(rename = "bd")]
     pub body: MarkdownBlock<E>,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -826,6 +863,7 @@ pub enum Alignment {
 }
 
 /// An `Alignment` as rkyv archives it.
+#[cfg(feature = "binary-format")]
 pub type ArchivedAlignment = mirror::ArchivedAlignmentMirror;
 
 /// The syntax a table is written in.
@@ -843,6 +881,7 @@ pub enum TableFormat {
 }
 
 /// A `TableFormat` as rkyv archives it.
+#[cfg(feature = "binary-format")]
 pub type ArchivedTableFormat = mirror::ArchivedTableFormatMirror;
 
 /// A node inside a line of text.
@@ -866,6 +905,7 @@ where
 }
 
 /// An `Inline` as rkyv archives it.
+#[cfg(feature = "binary-format")]
 pub type ArchivedInline<E = Markdown> = mirror::ArchivedInlineMirror<E>;
 
 /// Whether an inline node goes on from the line before or into the line
@@ -888,22 +928,25 @@ pub enum Continues {
 }
 
 /// A `Continues` as rkyv archives it.
+#[cfg(feature = "binary-format")]
 pub type ArchivedContinues = mirror::ArchivedContinuesMirror;
 
 /// Plain text.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Text<E = Markdown>
 where
     E: Extension,
 {
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "v")]
     pub value: String,
@@ -925,14 +968,16 @@ where
 
 /// Text between `*` or `_`, such as `*a*`.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source))]
-#[rkyv(deserialize_bounds(__D::Error: Source))]
-#[rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source)))]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(deserialize_bounds(__D::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source))))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Emphasis<E = Markdown>
 where
@@ -940,13 +985,13 @@ where
 {
     #[serde(rename = "ch")]
     #[serde(deserialize_with = "grown")]
-    #[rkyv(omit_bounds, with = Map<InlineMirror<E>>)]
+    #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<InlineMirror<E>>))]
     pub children: Vec<Inline<E>>,
     #[serde(rename = "co")]
-    #[rkyv(with = ContinuesMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -967,14 +1012,16 @@ where
 
 /// Text between `**` or `__`, such as `**b**`.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source))]
-#[rkyv(deserialize_bounds(__D::Error: Source))]
-#[rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source)))]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(deserialize_bounds(__D::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source))))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Strong<E = Markdown>
 where
@@ -982,13 +1029,13 @@ where
 {
     #[serde(rename = "ch")]
     #[serde(deserialize_with = "grown")]
-    #[rkyv(omit_bounds, with = Map<InlineMirror<E>>)]
+    #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<InlineMirror<E>>))]
     pub children: Vec<Inline<E>>,
     #[serde(rename = "co")]
-    #[rkyv(with = ContinuesMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -1010,18 +1057,20 @@ where
 /// A hard line break: the two or more spaces, or the backslash, that end a
 /// line followed by another line of its paragraph.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct LineBreak<E = Markdown>
 where
     E: Extension,
 {
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -1041,14 +1090,16 @@ where
 /// reference link takes its target and title from its label's definition.
 /// `target` and `title` hold their escapes and references resolved.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source))]
-#[rkyv(deserialize_bounds(__D::Error: Source))]
-#[rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source)))]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(deserialize_bounds(__D::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source))))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Link<E = Markdown>
 where
@@ -1056,16 +1107,16 @@ where
 {
     #[serde(rename = "ch")]
     #[serde(deserialize_with = "grown")]
-    #[rkyv(omit_bounds, with = Map<LinkInlineMirror<E>>)]
+    #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<LinkInlineMirror<E>>))]
     pub children: Vec<LinkInline<E>>,
     #[serde(rename = "co")]
-    #[rkyv(with = ContinuesMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
     #[serde(rename = "fr")]
-    #[rkyv(with = LinkFormMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = LinkFormMirror))]
     pub form: LinkForm,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "tg")]
     pub target: String,
@@ -1118,18 +1169,21 @@ where
 }
 
 /// A `LinkInline` as rkyv archives it.
+#[cfg(feature = "binary-format")]
 pub type ArchivedLinkInline<E = Markdown> = mirror::ArchivedLinkInlineMirror<E>;
 
 /// Text between `*` or `_` inside a link's text.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source))]
-#[rkyv(deserialize_bounds(__D::Error: Source))]
-#[rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source)))]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(deserialize_bounds(__D::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source))))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct LinkEmphasis<E = Markdown>
 where
@@ -1137,13 +1191,13 @@ where
 {
     #[serde(rename = "ch")]
     #[serde(deserialize_with = "grown")]
-    #[rkyv(omit_bounds, with = Map<LinkInlineMirror<E>>)]
+    #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<LinkInlineMirror<E>>))]
     pub children: Vec<LinkInline<E>>,
     #[serde(rename = "co")]
-    #[rkyv(with = ContinuesMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -1165,14 +1219,16 @@ where
 
 /// Text between `**` or `__` inside a link's text.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source))]
-#[rkyv(deserialize_bounds(__D::Error: Source))]
-#[rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source)))]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(serialize_bounds(__S: Writer + Allocator, __S::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(deserialize_bounds(__D::Error: Source)))]
+#[cfg_attr(feature = "binary-format", rkyv(bytecheck(bounds(__C: ArchiveContext, __C::Error: Source))))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct LinkStrong<E = Markdown>
 where
@@ -1180,13 +1236,13 @@ where
 {
     #[serde(rename = "ch")]
     #[serde(deserialize_with = "grown")]
-    #[rkyv(omit_bounds, with = Map<LinkInlineMirror<E>>)]
+    #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<LinkInlineMirror<E>>))]
     pub children: Vec<LinkInline<E>>,
     #[serde(rename = "co")]
-    #[rkyv(with = ContinuesMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
 }
 
@@ -1219,6 +1275,7 @@ pub enum LinkForm {
 }
 
 /// A `LinkForm` as rkyv archives it.
+#[cfg(feature = "binary-format")]
 pub type ArchivedLinkForm = mirror::ArchivedLinkFormMirror;
 
 /// An embed: `![alt](target "title")`, `![[target]]` or `![[target|alt]]`.
@@ -1226,11 +1283,13 @@ pub type ArchivedLinkForm = mirror::ArchivedLinkFormMirror;
 /// `alt` is empty when none is written. `target` and `title` hold their
 /// escapes and references resolved.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Image<E = Markdown>
 where
@@ -1239,13 +1298,13 @@ where
     #[serde(rename = "at")]
     pub alt: String,
     #[serde(rename = "co")]
-    #[rkyv(with = ContinuesMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
     #[serde(rename = "fr")]
-    #[rkyv(with = LinkFormMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = LinkFormMirror))]
     pub form: LinkForm,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "tg")]
     pub target: String,
@@ -1275,21 +1334,23 @@ where
 
 /// Text between backticks, such as `` `arky check` ``.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
-#[derive(
-    Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, RkyvDeserialize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "binary-format",
+    derive(rkyv::Archive, rkyv::Serialize, RkyvDeserialize)
 )]
 #[serde(bound = "")]
-#[rkyv(attr(non_exhaustive))]
+#[cfg_attr(feature = "binary-format", rkyv(attr(non_exhaustive)))]
 #[non_exhaustive]
 pub struct Code<E = Markdown>
 where
     E: Extension,
 {
     #[serde(rename = "co")]
-    #[rkyv(with = ContinuesMirror)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
     #[serde(skip)]
-    #[rkyv(with = Skip)]
+    #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
     #[serde(rename = "v")]
     pub value: String,

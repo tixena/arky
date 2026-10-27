@@ -9,7 +9,7 @@ use rkyv::util::AlignedVec;
 use rkyv::with::{DeserializeWith as _, With};
 
 use super::json::unclaim;
-use super::{on_two_megabytes, valid};
+use super::{FIXTURES, on_two_megabytes, valid};
 use crate::parser::ast::{
     ArchivedRawDocument, ArchivedValue, Block, Document, Kind, Mapping, MarkdownBlock, RawDocument,
     Value,
@@ -18,30 +18,6 @@ use crate::parser::frontmatter::VALUE_CAP;
 use crate::parser::lexer::BLOCK_CAP;
 use crate::parser::mirror::RawDocumentMirror;
 use crate::parser::parse;
-
-pub const FIXTURES: [&str; 21] = [
-    include_str!("fixtures/api_reference.md"),
-    include_str!("fixtures/book_page.md"),
-    include_str!("fixtures/changelog.md"),
-    include_str!("fixtures/contact.md"),
-    include_str!("fixtures/daily_note.md"),
-    include_str!("fixtures/docusaurus_page.md"),
-    include_str!("fixtures/essay.md"),
-    include_str!("fixtures/hugo_post.md"),
-    include_str!("fixtures/hugo_post_with_table.md"),
-    include_str!("fixtures/issue_template.md"),
-    include_str!("fixtures/jekyll_post.md"),
-    include_str!("fixtures/meeting_notes.md"),
-    include_str!("fixtures/obsidian_note.md"),
-    include_str!("fixtures/pandoc_paper.md"),
-    include_str!("fixtures/readme.md"),
-    include_str!("fixtures/recipe.md"),
-    include_str!("fixtures/slash_command.md"),
-    include_str!("fixtures/task.md"),
-    include_str!("fixtures/toml_multi_line_string.md"),
-    include_str!("fixtures/yaml_list_of_mappings.md"),
-    include_str!("fixtures/zola_page.md"),
-];
 
 /// The rkyv bytes of `document`.
 fn to_bytes(document: &RawDocument) -> AlignedVec {

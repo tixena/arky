@@ -17,6 +17,7 @@ use crate::parser::ast::{
     Block, Document, Image, Inline, Line, LinkForm, LinkInline, MarkdownBlock, Paragraph,
     RawDocument, Section,
 };
+#[cfg(feature = "binary-format")]
 use crate::parser::mirror::BundledDocumentMirror;
 use crate::parser::parse;
 use crate::writer::{self, WriteError, WriteOptions};
@@ -241,6 +242,7 @@ impl BundledDocument {
     }
 
     /// The bytes of each file, by its path.
+    #[cfg(feature = "binary-format")]
     pub(crate) const fn files_by_path(&self) -> &BTreeMap<String, Vec<u8>> {
         &self.files
     }
@@ -470,6 +472,7 @@ impl BundledDocument {
 }
 
 /// Unchecked: `forms::decode` makes the bundle again with `new`.
+#[cfg(feature = "binary-format")]
 impl From<BundledDocumentMirror> for BundledDocument {
     fn from(mirror: BundledDocumentMirror) -> Self {
         Self {

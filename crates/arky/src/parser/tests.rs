@@ -11,6 +11,7 @@ mod extension;
 mod frontmatter;
 mod inlines;
 pub mod json;
+#[cfg(feature = "binary-format")]
 pub mod rkyv;
 mod spans;
 mod tables;
@@ -33,6 +34,30 @@ use crate::parser::extension::{Extension, Markdown};
 use crate::parser::line::line_at;
 use crate::parser::{ParseOptions, located, parse, parse_located};
 use crate::writer::Writer;
+
+pub const FIXTURES: [&str; 21] = [
+    include_str!("tests/fixtures/api_reference.md"),
+    include_str!("tests/fixtures/book_page.md"),
+    include_str!("tests/fixtures/changelog.md"),
+    include_str!("tests/fixtures/contact.md"),
+    include_str!("tests/fixtures/daily_note.md"),
+    include_str!("tests/fixtures/docusaurus_page.md"),
+    include_str!("tests/fixtures/essay.md"),
+    include_str!("tests/fixtures/hugo_post.md"),
+    include_str!("tests/fixtures/hugo_post_with_table.md"),
+    include_str!("tests/fixtures/issue_template.md"),
+    include_str!("tests/fixtures/jekyll_post.md"),
+    include_str!("tests/fixtures/meeting_notes.md"),
+    include_str!("tests/fixtures/obsidian_note.md"),
+    include_str!("tests/fixtures/pandoc_paper.md"),
+    include_str!("tests/fixtures/readme.md"),
+    include_str!("tests/fixtures/recipe.md"),
+    include_str!("tests/fixtures/slash_command.md"),
+    include_str!("tests/fixtures/task.md"),
+    include_str!("tests/fixtures/toml_multi_line_string.md"),
+    include_str!("tests/fixtures/yaml_list_of_mappings.md"),
+    include_str!("tests/fixtures/zola_page.md"),
+];
 
 /// One node of a tree: how deep it sits, how it reads, what it covers.
 /// `merged` marks a pair whose key is written more than once, and `spread` a

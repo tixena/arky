@@ -18,6 +18,8 @@ zod = []
 jsonschema = []
 # tixschema's MongoDB layer on every model type: typed paths and the recovering decode of BSON.
 mongodb = ["tixschema/mongodb", "dep:mongodb", "dep:bson"]
+# The binary form: the tree and its files as an rkyv archive, for piping between arky commands.
+binary-format = ["dep:rkyv"]
 
 [dependencies]
 # Error handling
@@ -42,7 +44,7 @@ serde_stacker.workspace = true
 stacker.workspace = true
 
 # Binary form, read in place
-rkyv.workspace = true
+rkyv = { workspace = true, optional = true }
 
 # The file systems and the zip of a self-contained document
 os-shim = { workspace = true, features = ["zip"] }

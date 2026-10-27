@@ -13,11 +13,17 @@ use super::{DecodeError, EncodeError, Form, FormError, StoredBundle, decode, enc
 use crate::bundle::{BundledDocument, BundledDocumentError, Missing};
 use crate::parser::ast::{FrontmatterFormat, RawDocument, Value};
 use crate::parser::parse;
+use crate::parser::tests::FIXTURES;
 use crate::parser::tests::json::unclaim;
-use crate::parser::tests::rkyv::FIXTURES;
 use crate::writer::{WriteError, WriteOptions, write};
 
-const FORMS: [Form; 4] = [Form::Json, Form::Markdown, Form::Binary, Form::Zip];
+const FORMS: &[Form] = &[
+    Form::Json,
+    Form::Markdown,
+    #[cfg(feature = "binary-format")]
+    Form::Binary,
+    Form::Zip,
+];
 
 const TOML: WriteOptions = WriteOptions {
     frontmatter: FrontmatterFormat::Toml,
@@ -31,6 +37,7 @@ const REPORT: &str = "# Report\n\n![Logo](media/logo.png)\n";
 
 /// The binary form of `toml_multi_line_string.md`. A change to a model type
 /// changes it, and raises `BINARY_VERSION` with it.
+#[cfg(feature = "binary-format")]
 const PINNED: &[u8] =
     b"arky\0\x04\x07\0\0\0Body.\xff\xff\xff\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\
     \xdc\xff\xff\xff\x01\0\0\0\0\0\0\0\x04\0\0\0\xf0\xff\xff\xff\x01\0\0\0\0\0\0\0\0\0\0\0\0\0\
@@ -114,10 +121,10 @@ fn write_error(form_error: FormError) -> Option<WriteError> {
             EncodeError::Write(error)
             | EncodeError::BundledDocument(BundledDocumentError::Write(error)),
         ) => Some(error),
+        #[cfg(feature = "binary-format")]
+        FormError::Encode(EncodeError::Binary(_)) => None,
         FormError::Decode(_)
-        | FormError::Encode(
-            EncodeError::Binary(_) | EncodeError::BundledDocument(_) | EncodeError::Json(_),
-        ) => None,
+        | FormError::Encode(EncodeError::BundledDocument(_) | EncodeError::Json(_)) => None,
     }
 }
 
@@ -127,32 +134,39 @@ fn the_sample_puts_a_list_into_each_form() {
     let bundle = decode(b"* item\n", Form::Markdown, Missing::Refuse).unwrap();
     let json = encode(&bundle, Form::Json, &options).unwrap();
     assert!(json.ends_with(b"\n"));
-    let binary = encode(&bundle, Form::Binary, &options).unwrap();
-    assert_eq!(&binary[..6], b"arky\0\x04");
-    assert_eq!(
-        stored(&binary, Form::Binary, &options, Missing::Refuse)
-            .unwrap()
-            .text,
-        "- item\n"
-    );
+    #[cfg(feature = "binary-format")]
+    let binary = {
+        let binary = encode(&bundle, Form::Binary, &options).unwrap();
+        assert_eq!(&binary[..6], b"arky\0\x04");
+        assert_eq!(
+            stored(&binary, Form::Binary, &options, Missing::Refuse)
+                .unwrap()
+                .text,
+            "- item\n"
+        );
+        binary
+    };
     assert_eq!(
         stored(&json, Form::Json, &options, Missing::Refuse)
             .unwrap()
             .text,
         "- item\n"
     );
-    let mut wrong = binary;
-    wrong[5] = 1;
-    assert!(matches!(
-        decode(&wrong, Form::Binary, Missing::Refuse),
-        Err(DecodeError::Version { found: 1 })
-    ));
+    #[cfg(feature = "binary-format")]
+    {
+        let mut wrong = binary;
+        wrong[5] = 1;
+        assert!(matches!(
+            decode(&wrong, Form::Binary, Missing::Refuse),
+            Err(DecodeError::Version { found: 1 })
+        ));
+    }
 }
 
 #[test]
 fn each_form_of_the_sample_bundle_reads_back_as_the_same_bundle() {
     let bundle = sample();
-    for form in FORMS {
+    for form in FORMS.iter().copied() {
         let bytes = encode(&bundle, form, &WriteOptions::default()).unwrap();
         assert_eq!(
             decode(&bytes, form, Missing::Refuse).unwrap(),
@@ -170,12 +184,13 @@ fn a_bundle_whose_address_holds_a_backslash_reads_back_from_each_form_with_its_f
     };
     let bundle = logo("![x](media\\logo.png)\n");
     let named = logo("![x](media/logo.png)\n");
-    for form in FORMS {
+    for form in FORMS.iter().copied() {
         let bytes = encode(&bundle, form, &WriteOptions::default()).unwrap();
         // A data URI names its file by its path, and that name is the target read back.
-        let expected = match form {
-            Form::Binary | Form::Zip => &bundle,
-            Form::Json | Form::Markdown => &named,
+        let expected = if matches!(form, Form::Json | Form::Markdown) {
+            &named
+        } else {
+            &bundle
         };
         assert_eq!(
             &decode(&bytes, form, Missing::Refuse).unwrap(),
@@ -218,6 +233,7 @@ fn markdown_and_json_hold_each_file_as_a_named_data_uri_and_the_zip_holds_it_at_
     assert_eq!(logo, PNG);
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn the_binary_form_opens_with_version_4_and_holds_the_files() {
     let binary = encode(&sample(), Form::Binary, &WriteOptions::default()).unwrap();
@@ -232,7 +248,7 @@ fn each_form_of_the_sample_bundle_is_stored_as_its_text_and_its_files() {
         files: BTreeMap::from([("media/logo.png".to_owned(), PNG.to_vec())]),
         text: REPORT.to_owned(),
     };
-    for form in FORMS {
+    for form in FORMS.iter().copied() {
         let bytes = encode(&sample(), form, &options).unwrap();
         assert_eq!(
             stored(&bytes, form, &options, Missing::Refuse).unwrap(),
@@ -294,7 +310,7 @@ fn each_fixture_is_stored_from_each_form_as_write_writes_it_and_a_second_pass_ch
     for source in FIXTURES {
         let document = parse(source).document;
         let through = through_json(&document);
-        for form in FORMS {
+        for form in FORMS.iter().copied() {
             let expected = if form == Form::Json {
                 &through
             } else {
@@ -320,6 +336,7 @@ fn each_fixture_is_stored_from_each_form_as_write_writes_it_and_a_second_pass_ch
     }
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn each_fixture_reads_back_from_the_binary_form_every_kind_empty() {
     for source in FIXTURES {
@@ -349,6 +366,7 @@ fn bytes_that_are_not_utf8_fail_naming_the_offset_of_the_first_byte_that_is_not(
     }
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn binary_bytes_that_do_not_open_with_arky_a_zero_byte_and_a_version_are_not_arkys() {
     for bytes in [b"bincode!".as_slice(), b"arky\0", b"arky", b"x", b""] {
@@ -363,6 +381,7 @@ fn binary_bytes_that_do_not_open_with_arky_a_zero_byte_and_a_version_are_not_ark
     }
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn binary_bytes_of_another_version_fail_naming_it() {
     let bundle = bundled(parse(FIXTURES[0]).document);
@@ -381,6 +400,7 @@ fn binary_bytes_of_another_version_fail_naming_it() {
     }
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn binary_bytes_of_version_3_are_refused_naming_the_version_this_arky_reads() {
     let mut bytes = encode(&sample(), Form::Binary, &WriteOptions::default()).unwrap();
@@ -426,7 +446,7 @@ fn a_yaml_fixture_is_stored_with_toml_frontmatter_from_each_form_when_the_option
     let source = include_str!("../parser/tests/fixtures/jekyll_post.md");
     assert!(source.starts_with("---\n"));
     let document = parse(source).document;
-    for form in FORMS {
+    for form in FORMS.iter().copied() {
         let bytes = encode(&bundled(document.clone()), form, &WriteOptions::default()).unwrap();
         let text = stored(&bytes, form, &TOML, Missing::Keep).unwrap().text;
         assert!(text.starts_with("+++\n"), "{form:?}: {text}");
@@ -434,6 +454,7 @@ fn a_yaml_fixture_is_stored_with_toml_frontmatter_from_each_form_when_the_option
     }
 }
 
+#[cfg(feature = "binary-format")]
 #[test]
 fn the_binary_form_of_the_smallest_fixture_is_pinned() {
     let source = include_str!("../parser/tests/fixtures/toml_multi_line_string.md");

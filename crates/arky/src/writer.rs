@@ -1,6 +1,7 @@
 //! A document tree written back to markdown, in arky's own form: one
 //! written form for each construct, whatever form the file used.
 
+#[cfg(feature = "binary-format")]
 mod archived;
 mod inline;
 mod table;
@@ -13,9 +14,11 @@ use core::{iter, mem};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use thiserror::Error;
 
+#[cfg(feature = "binary-format")]
+use crate::parser::ast::ArchivedRawDocument;
 use crate::parser::ast::{
-    ArchivedRawDocument, Args, Block, CodeBlock, FrontmatterFormat, Heading, Kind, Line, List,
-    Mapping, MarkdownBlock, Paragraph, RawDocument, Section, Value,
+    Args, Block, CodeBlock, FrontmatterFormat, Heading, Kind, Line, List, Mapping, MarkdownBlock,
+    Paragraph, RawDocument, Section, Value,
 };
 use crate::parser::extension::{Extension, Written};
 use crate::parser::frontmatter;
@@ -880,6 +883,7 @@ where
 ///
 /// The errors `write` returns for the same tree, and an error naming the key
 /// of a date or time that the archived tree holds out of chrono's range.
+#[cfg(feature = "binary-format")]
 pub fn write_archived(
     document: &ArchivedRawDocument,
     options: &WriteOptions,

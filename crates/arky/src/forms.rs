@@ -4,27 +4,37 @@
 use alloc::collections::BTreeMap;
 use core::str::from_utf8;
 
+#[cfg(feature = "binary-format")]
 use rkyv::de::Pool;
+#[cfg(feature = "binary-format")]
 use rkyv::rancor::{self, Strategy};
+#[cfg(feature = "binary-format")]
 use rkyv::util::AlignedVec;
+#[cfg(feature = "binary-format")]
 use rkyv::with::{DeserializeWith as _, With};
 
 use crate::bundle::{BundledDocument, BundledDocumentError, Missing};
 use crate::parser::ast::RawDocument;
+#[cfg(feature = "binary-format")]
 use crate::parser::mirror::{ArchivedBundledDocumentMirror, BundledDocumentMirror};
 use crate::parser::{from_json, parse, to_json};
-use crate::writer::{self, WriteError, WriteOptions, write_archived};
+#[cfg(feature = "binary-format")]
+use crate::writer::write_archived;
+use crate::writer::{self, WriteError, WriteOptions};
 
 /// `arky` and a zero byte, the bytes the binary form opens with.
+#[cfg(feature = "binary-format")]
 pub const BINARY_MAGIC: &[u8; 5] = b"arky\0";
 
 /// The version of the archived types, the byte after `BINARY_MAGIC`.
+#[cfg(feature = "binary-format")]
 pub const BINARY_VERSION: u8 = 4;
 
 /// A form a document takes outside arky.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Form {
+    #[cfg(feature = "binary-format")]
     Binary,
     Json,
     Markdown,
@@ -35,16 +45,19 @@ pub enum Form {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum DecodeError {
+    #[cfg(feature = "binary-format")]
     #[error(transparent)]
     Binary(#[from] rancor::Error),
     #[error(transparent)]
     BundledDocument(#[from] BundledDocumentError),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    #[cfg(feature = "binary-format")]
     #[error("not arky's binary form: the bytes do not open with `arky` and a zero byte")]
     NotArky,
     #[error("not UTF-8 at byte {offset}")]
     NotUtf8 { offset: usize },
+    #[cfg(feature = "binary-format")]
     #[error("arky's binary form version {found}, and this arky reads version {BINARY_VERSION}")]
     Version { found: u8 },
 }
@@ -53,6 +66,7 @@ pub enum DecodeError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum EncodeError {
+    #[cfg(feature = "binary-format")]
     #[error(transparent)]
     Binary(#[from] rancor::Error),
     #[error(transparent)]
@@ -98,6 +112,7 @@ pub fn encode(
     options: &WriteOptions,
 ) -> Result<Vec<u8>, EncodeError> {
     match form {
+        #[cfg(feature = "binary-format")]
         Form::Binary => {
             let archived = rkyv::to_bytes::<rancor::Error>(With::<
                 BundledDocument,
@@ -132,6 +147,7 @@ pub fn encode(
 /// rkyv error, and the bundle's error.
 pub fn decode(bytes: &[u8], form: Form, missing: Missing) -> Result<BundledDocument, DecodeError> {
     match form {
+        #[cfg(feature = "binary-format")]
         Form::Binary => {
             let buffer = aligned(bytes)?;
             let archived = rkyv::access::<ArchivedBundledDocumentMirror, rancor::Error>(&buffer)?;
@@ -172,6 +188,7 @@ pub fn stored(
     missing: Missing,
 ) -> Result<StoredBundle, FormError> {
     let bundle = match form {
+        #[cfg(feature = "binary-format")]
         Form::Binary => {
             let buffer = aligned(bytes)?;
             let archived = rkyv::access::<ArchivedBundledDocumentMirror, rancor::Error>(&buffer)
@@ -199,6 +216,7 @@ fn text(bytes: &[u8]) -> Result<&str, DecodeError> {
 }
 
 /// The bytes after arky's binary header, copied where rkyv reads them in place.
+#[cfg(feature = "binary-format")]
 fn aligned(bytes: &[u8]) -> Result<AlignedVec, DecodeError> {
     let (&version, archived) = bytes
         .strip_prefix(BINARY_MAGIC.as_slice())

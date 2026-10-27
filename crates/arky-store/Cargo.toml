@@ -11,6 +11,8 @@ repository.workspace = true
 workspace = true
 
 [features]
+# The binary form of arky's documents, for the stores' tests of it.
+binary-format = ["arky/binary-format"]
 # The MongoDB store: arky's MongoDB layer, the driver and its BSON, tokio's timer, and
 # the MinIO store that keeps its files.
 mongodb = [

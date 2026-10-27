@@ -45,7 +45,12 @@ const FIXTURES: [&str; 21] = [
     include_str!("../../../../arky/src/parser/tests/fixtures/zola_page.md"),
 ];
 
-const FORMS: [Form; 3] = [Form::Json, Form::Markdown, Form::Binary];
+const FORMS: &[Form] = &[
+    Form::Json,
+    Form::Markdown,
+    #[cfg(feature = "binary-format")]
+    Form::Binary,
+];
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n not a real picture";
 
@@ -109,7 +114,7 @@ async fn each_fixture_through_rustfs_and_back_is_arkys_form_and_a_second_copy_ch
             .write(&fixture, source.as_bytes(), &Precondition::None)
             .await
             .unwrap();
-        for form in FORMS {
+        for form in FORMS.iter().copied() {
             let first = path(&format!("{form:?}/{index}.md"));
             let second = path(&format!("{form:?}/again/{index}.md"));
             copy(&files, &fixture, &minio, &first, form).await;

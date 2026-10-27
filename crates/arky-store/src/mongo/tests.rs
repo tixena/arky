@@ -61,7 +61,12 @@ const FIXTURES: [&str; 21] = [
     include_str!("../../../arky/src/parser/tests/fixtures/zola_page.md"),
 ];
 
-const FORMS: [Form; 3] = [Form::Json, Form::Markdown, Form::Binary];
+const FORMS: &[Form] = &[
+    Form::Json,
+    Form::Markdown,
+    #[cfg(feature = "binary-format")]
+    Form::Binary,
+];
 
 const INTRO: &str = "Intro ![chart](../media/chart.png)\n";
 
@@ -1187,7 +1192,7 @@ async fn each_fixture_through_mongodb_and_back_is_arkys_form_and_a_second_copy_c
                 .await
                 .unwrap();
             let expected = back_from_mongodb(source);
-            for form in FORMS {
+            for form in FORMS.iter().copied() {
                 let first = StorePath::new(&format!("{form:?}/{index}.md")).unwrap();
                 let second = StorePath::new(&format!("{form:?}/again/{index}.md")).unwrap();
                 copy(&files, &fixture, &mongo, &first, form).await;
