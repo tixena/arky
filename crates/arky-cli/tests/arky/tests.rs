@@ -6,11 +6,11 @@ use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command as Process, Stdio};
 
-use arky_core::bundle::Missing;
-use arky_core::forms::{Form, decode};
-use arky_core::parser::ast::{FrontmatterFormat, RawDocument};
-use arky_core::parser::{from_json, parse, to_json};
-use arky_core::writer::{WriteOptions, write};
+use arky::bundle::Missing;
+use arky::forms::{Form, decode};
+use arky::parser::ast::{FrontmatterFormat, RawDocument};
+use arky::parser::{from_json, parse, to_json};
+use arky::writer::{WriteOptions, write};
 use assert_cmd::Command;
 use assert_cmd::assert::{Assert, OutputAssertExt as _};
 use assert_cmd::cargo::cargo_bin;
@@ -20,7 +20,7 @@ use tempfile::TempDir;
 
 const FIXTURES: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../arky-core/src/parser/tests/fixtures"
+    "/../arky/src/parser/tests/fixtures"
 );
 
 const FORMS: [&str; 4] = ["markdown", "json", "binary", "zip"];
@@ -107,7 +107,7 @@ fn failed(ran: Assert, code: i32, line: &str) {
     assert!(stderr.ends_with('\n'), "{stderr}");
 }
 
-/// The 21 markdown fixture files of arky-core, by name.
+/// The 21 markdown fixture files of arky, by name.
 fn fixtures() -> Vec<(String, String)> {
     let mut files: Vec<(String, String)> = fs::read_dir(FIXTURES)
         .unwrap()

@@ -20,7 +20,7 @@ cut into one piece per line, each with a `continues` that says whether the node
 goes on to the next line, from the previous one, or both. A code block holds its
 language and its args, read as TOML when they can be and kept as written
 otherwise. An extension can give any markdown node a type of its own. The full
-grammar is in `crates/arky-core/GRAMMAR.md`.
+grammar is in `crates/arky/GRAMMAR.md`.
 
 *What identifies a document that has no path is not yet specified.*
 
@@ -71,7 +71,7 @@ for everything — is remargin's write path. Within a corpus that remargin gover
 every resource still has to satisfy the lint rules configuration allows.
 
 The form arky writes for each construct is stated in the "Writing" section of
-`crates/arky-core/GRAMMAR.md`. *The list of lint rules configuration may allow
+`crates/arky/GRAMMAR.md`. *The list of lint rules configuration may allow
 is not yet specified.*
 
 ## What schemas cover

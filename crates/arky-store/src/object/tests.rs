@@ -9,10 +9,10 @@ use alloc::collections::BTreeMap;
 use core::future;
 use std::io;
 
-use arky_core::bundle::{BundledDocument, Missing};
-use arky_core::forms::{Form, encode};
-use arky_core::parser::parse;
-use arky_core::writer::WriteOptions;
+use arky::bundle::{BundledDocument, Missing};
+use arky::forms::{Form, encode};
+use arky::parser::parse;
+use arky::writer::WriteOptions;
 use core::time::Duration;
 use std::time::SystemTime;
 

@@ -1,7 +1,7 @@
 # The grammar of the markdown arky reads
 
-This file states what `arky_core::parser::parse` and `parse_with` accept, the tree
-they build, and the text `arky_core::writer::write` writes back, as the code is
+This file states what `arky::parser::parse` and `parse_with` accept, the tree
+they build, and the text `arky::writer::write` writes back, as the code is
 written today. The unit tests under [`src/parser/tests/`](src/parser/tests) show,
 sample by sample, the tree each rule produces, and
 [`src/writer/tests.rs`](src/writer/tests.rs) the text each written form gives.

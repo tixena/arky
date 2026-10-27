@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::SystemTime;
 
-use arky_core::bundle::Missing;
-use arky_core::forms::{Form, decode};
-use arky_core::parser::ast::{FrontmatterFormat, RawDocument};
-use arky_core::parser::{from_json, parse, to_json};
-use arky_core::writer::{WriteOptions, write};
+use arky::bundle::Missing;
+use arky::forms::{Form, decode};
+use arky::parser::ast::{FrontmatterFormat, RawDocument};
+use arky::parser::{from_json, parse, to_json};
+use arky::writer::{WriteOptions, write};
 use clap::Parser as _;
 use os_shim::System as _;
 use os_shim::mock::MemorySystem;
@@ -21,27 +21,27 @@ use super::run;
 use crate::cli::Cli;
 
 const FIXTURES: [&str; 21] = [
-    include_str!("../../../arky-core/src/parser/tests/fixtures/api_reference.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/book_page.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/changelog.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/contact.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/daily_note.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/docusaurus_page.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/essay.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/hugo_post.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/hugo_post_with_table.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/issue_template.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/jekyll_post.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/meeting_notes.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/obsidian_note.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/pandoc_paper.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/readme.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/recipe.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/slash_command.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/task.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/toml_multi_line_string.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/yaml_list_of_mappings.md"),
-    include_str!("../../../arky-core/src/parser/tests/fixtures/zola_page.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/api_reference.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/book_page.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/changelog.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/contact.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/daily_note.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/docusaurus_page.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/essay.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/hugo_post.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/hugo_post_with_table.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/issue_template.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/jekyll_post.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/meeting_notes.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/obsidian_note.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/pandoc_paper.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/readme.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/recipe.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/slash_command.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/task.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/toml_multi_line_string.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/yaml_list_of_mappings.md"),
+    include_str!("../../../arky/src/parser/tests/fixtures/zola_page.md"),
 ];
 
 const FORMS: [&str; 4] = ["markdown", "json", "binary", "zip"];

@@ -96,21 +96,6 @@ dependencies = [
 name = "arky"
 version = "0.1.0"
 dependencies = [
- "arky-core",
- "arky-store",
- "assert_cmd",
- "clap",
- "mongodb",
- "os-shim",
- "predicates",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "arky-core"
-version = "0.1.0"
-dependencies = [
  "base64 0.23.1",
  "bson",
  "chrono",
@@ -130,10 +115,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "arky-cli"
+version = "0.1.0"
+dependencies = [
+ "arky",
+ "arky-store",
+ "assert_cmd",
+ "clap",
+ "mongodb",
+ "os-shim",
+ "predicates",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "arky-store"
 version = "0.1.0"
 dependencies = [
- "arky-core",
+ "arky",
  "bson",
  "chrono",
  "mongodb",

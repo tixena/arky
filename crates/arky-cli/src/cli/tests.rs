@@ -1,4 +1,4 @@
-use arky_core::forms::Form;
+use arky::forms::Form;
 use clap::error::ErrorKind;
 use clap::{CommandFactory as _, Parser as _};
 

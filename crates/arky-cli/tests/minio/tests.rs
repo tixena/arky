@@ -5,8 +5,8 @@ use std::path::Path;
 use std::process::{Command as Process, Stdio};
 use std::time::SystemTime;
 
-use arky_core::parser::parse;
-use arky_core::writer::{WriteOptions, write};
+use arky::parser::parse;
+use arky::writer::{WriteOptions, write};
 use arky_store::object::{ObjectConfig, ObjectStore};
 use arky_store::{Precondition, Store as _, StoreError, StorePath};
 use assert_cmd::Command;
@@ -18,7 +18,7 @@ use tokio::runtime::Builder;
 
 const FIXTURES: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../arky-core/src/parser/tests/fixtures"
+    "/../arky/src/parser/tests/fixtures"
 );
 
 /// The key prefix the copies are under.
@@ -39,7 +39,7 @@ fn endpoint() -> String {
     env::var("ARKY_TEST_MINIO_ENDPOINT").unwrap()
 }
 
-/// The 21 markdown fixture files of arky-core, by name.
+/// The 21 markdown fixture files of arky, by name.
 fn fixtures() -> Vec<(String, String)> {
     let mut files: Vec<(String, String)> = fs::read_dir(FIXTURES)
         .unwrap()

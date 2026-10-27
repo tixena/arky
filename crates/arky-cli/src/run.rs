@@ -9,11 +9,11 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
-use arky_core::bundle::Missing;
-use arky_core::forms::{Form, encode};
-use arky_core::parser::ast::{Mapping, Value};
-use arky_core::parser::read_toml;
-use arky_core::writer::WriteOptions;
+use arky::bundle::Missing;
+use arky::forms::{Form, encode};
+use arky::parser::ast::{Mapping, Value};
+use arky::parser::read_toml;
+use arky::writer::WriteOptions;
 use arky_store::any::AnyStore;
 use arky_store::document::{self, DocumentError};
 use arky_store::file::FileStore;

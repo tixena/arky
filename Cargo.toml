@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/arky", "crates/arky-core", "crates/arky-store"]
+members = ["crates/arky", "crates/arky-cli", "crates/arky-store"]
 resolver = "2"
 
 [workspace.package]

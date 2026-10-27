@@ -5,11 +5,11 @@ use alloc::collections::BTreeMap;
 use core::str::from_utf8;
 use std::path::Path;
 
-use arky_core::bundle::{BundledDocument, BundledDocumentError, Missing, embedded_paths};
-use arky_core::forms::{DecodeError, EncodeError, Form, FormError, stored};
-use arky_core::parser::ast::RawDocument;
-use arky_core::parser::parse;
-use arky_core::writer::{self, WriteOptions};
+use arky::bundle::{BundledDocument, BundledDocumentError, Missing, embedded_paths};
+use arky::forms::{DecodeError, EncodeError, Form, FormError, stored};
+use arky::parser::ast::RawDocument;
+use arky::parser::parse;
+use arky::writer::{self, WriteOptions};
 
 use crate::{Precondition, Revision, Store, StoreError, StorePath};
 

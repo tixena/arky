@@ -11,10 +11,10 @@ repository.workspace = true
 workspace = true
 
 [features]
-# The MongoDB store: arky-core's MongoDB layer, the driver and its BSON, tokio's timer, and
+# The MongoDB store: arky's MongoDB layer, the driver and its BSON, tokio's timer, and
 # the MinIO store that keeps its files.
 mongodb = [
-    "arky-core/mongodb",
+    "arky/mongodb",
     "dep:mongodb",
     "dep:bson",
     "dep:serde",
@@ -27,7 +27,7 @@ mongodb = [
 minio = ["os-shim/minio", "os-shim/async"]
 
 [dependencies]
-arky-core = { path = "../arky-core" }
+arky = { path = "../arky" }
 os-shim = { workspace = true, features = ["async"] }
 sha2.workspace = true
 thiserror.workspace = true

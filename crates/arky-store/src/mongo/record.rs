@@ -7,7 +7,7 @@
 use alloc::collections::BTreeMap;
 use core::iter;
 
-use arky_core::parser::ast::{Mapping, RawDocument, Value, raw_document_schema};
+use arky::parser::ast::{Mapping, RawDocument, Value, raw_document_schema};
 use bson::oid::ObjectId;
 use bson::{Bson, Document, doc};
 use serde::{Deserialize, Serialize};

@@ -1,33 +1,61 @@
 [package]
 name = "arky"
-description = "The arky command line: get and write markdown documents"
+description = "Markdown documents as a typed tree"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
 
-[[bin]]
-name = "arky"
-path = "src/main.rs"
-
 [lints]
 workspace = true
 
 [features]
-default = ["mongodb", "minio"]
-minio = ["arky-store/minio"]
-mongodb = ["arky-store/mongodb"]
+default = ["zod", "jsonschema"]
+# Feature flags mirrored from tixschema so its proc macro expands
+# cfg(feature = "...") checks successfully in this crate's scope.
+zod = []
+jsonschema = []
+# tixschema's MongoDB layer on every model type: typed paths and the recovering decode of BSON.
+mongodb = ["tixschema/mongodb", "dep:mongodb", "dep:bson"]
 
 [dependencies]
-arky-core = { path = "../arky-core" }
-arky-store = { path = "../arky-store" }
-clap.workspace = true
-os-shim.workspace = true
-tokio = { workspace = true, features = ["rt"] }
+# Error handling
+thiserror.workspace = true
 
-[dev-dependencies]
-assert_cmd.workspace = true
-mongodb.workspace = true
-predicates.workspace = true
-tempfile.workspace = true
+# Insertion-ordered map
+indexmap.workspace = true
+
+# Dates and times, with no clock
+chrono.workspace = true
+
+# Unicode full case folding, for link labels
+unicase.workspace = true
+
+# Unicode general categories, for emphasis delimiter runs
+unicode-properties.workspace = true
+
+# Serialization of the tree, to JSON and back, at any depth
+serde.workspace = true
+serde_json.workspace = true
+serde_stacker.workspace = true
+stacker.workspace = true
+
+# Binary form, read in place
+rkyv.workspace = true
+
+# The file systems and the zip of a self-contained document
+os-shim = { workspace = true, features = ["zip"] }
+
+# Files written into embeds as data URIs
+base64.workspace = true
+
+# The name of a file that a data URI carries without one
+sha2.workspace = true
+
+# TypeScript type + Zod schema generation from Rust models
+tixschema.workspace = true
+
+# The MongoDB driver and its BSON, under the mongodb feature
+mongodb = { workspace = true, optional = true }
+bson = { workspace = true, optional = true }

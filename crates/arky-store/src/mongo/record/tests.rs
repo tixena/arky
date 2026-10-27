@@ -6,8 +6,8 @@
 use alloc::collections::BTreeMap;
 use std::thread;
 
-use arky_core::parser::ast::{InvalidDocument, Mapping, RawDocument, Value};
-use arky_core::parser::{from_json, parse, to_json};
+use arky::parser::ast::{InvalidDocument, Mapping, RawDocument, Value};
+use arky::parser::{from_json, parse, to_json};
 use bson::oid::ObjectId;
 use bson::{Bson, DateTime as BsonDateTime, Document, doc};
 use chrono::{DateTime, NaiveDate, NaiveTime, Timelike as _, Utc};
@@ -18,27 +18,27 @@ use super::{
 use crate::StoreError;
 
 const FIXTURES: [&str; 21] = [
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/api_reference.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/book_page.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/changelog.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/contact.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/daily_note.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/docusaurus_page.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/essay.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/hugo_post.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/hugo_post_with_table.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/issue_template.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/jekyll_post.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/meeting_notes.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/obsidian_note.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/pandoc_paper.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/readme.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/recipe.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/slash_command.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/task.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/toml_multi_line_string.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/yaml_list_of_mappings.md"),
-    include_str!("../../../../arky-core/src/parser/tests/fixtures/zola_page.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/api_reference.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/book_page.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/changelog.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/contact.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/daily_note.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/docusaurus_page.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/essay.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/hugo_post.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/hugo_post_with_table.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/issue_template.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/jekyll_post.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/meeting_notes.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/obsidian_note.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/pandoc_paper.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/readme.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/recipe.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/slash_command.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/task.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/toml_multi_line_string.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/yaml_list_of_mappings.md"),
+    include_str!("../../../../arky/src/parser/tests/fixtures/zola_page.md"),
 ];
 
 const ID: &str = "6ad42f681472f05ab2ed9be7";

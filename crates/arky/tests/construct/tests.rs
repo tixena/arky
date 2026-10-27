@@ -1,14 +1,12 @@
-use arky_core::parser::ast::{
+use arky::parser::ast::{
     Alignment, Args, Block, CodeBlock, Document, Heading, Inline, Item, Kind, Line, Link, LinkForm,
     LinkInline, LinkStrong, List, Mapping, MarkdownBlock, Paragraph, RawDocument, Section, Strong,
     Table, TableCell, TableFormat, TableRow, Text, ThematicBreak,
 };
-use arky_core::parser::error::ParseError;
-use arky_core::parser::extension::{
-    Construct, Context, Either, Extension, Markdown, With, Written,
-};
-use arky_core::parser::{ParseOptions, parse, parse_with};
-use arky_core::writer::{WriteOptions, Writer, write};
+use arky::parser::error::ParseError;
+use arky::parser::extension::{Construct, Context, Either, Extension, Markdown, With, Written};
+use arky::parser::{ParseOptions, parse, parse_with};
+use arky::writer::{WriteOptions, Writer, write};
 
 const SOURCE: &str = "# Results\n\nRevenue grew **12%**, see [the dashboard](https://example.com/q3).\n\n- North\n- South\n\n| Region | Revenue |\n| ------ | ------: |\n| North  | 1,200   |\n";
 

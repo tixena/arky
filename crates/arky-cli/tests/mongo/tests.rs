@@ -3,9 +3,9 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command as Process, Stdio};
 
-use arky_core::bundle::Missing;
-use arky_core::forms::{Form, encode};
-use arky_core::writer::WriteOptions;
+use arky::bundle::Missing;
+use arky::forms::{Form, encode};
+use arky::writer::WriteOptions;
 use arky_store::any::AnyStore;
 use arky_store::document::{get, put};
 use arky_store::mongo::MongoStore;
@@ -29,7 +29,7 @@ const FINISHED_PREFIX: &str = "binary/finished";
 
 const FIXTURES: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../arky-core/src/parser/tests/fixtures"
+    "/../arky/src/parser/tests/fixtures"
 );
 
 const OTHER_PNG: &[u8] = b"\x89PNG\r\n\x1a\n another picture";
@@ -75,7 +75,7 @@ fn endpoint() -> String {
     env::var("ARKY_TEST_MINIO_ENDPOINT").unwrap()
 }
 
-/// The 21 markdown fixture files of arky-core, by name.
+/// The 21 markdown fixture files of arky, by name.
 fn fixtures() -> Vec<(String, String)> {
     let mut files: Vec<(String, String)> = fs::read_dir(FIXTURES)
         .unwrap()

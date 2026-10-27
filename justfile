@@ -8,7 +8,7 @@ lint: lint-rust
 lint-rust:
     cargo clippy --workspace --all-targets -- -D warnings
     cargo clippy --workspace --all-targets --all-features -- -D warnings
-    cargo clippy -p arky --all-targets --no-default-features -- -D warnings
+    cargo clippy -p arky-cli --all-targets --no-default-features -- -D warnings
     cargo fmt --all --check
 
 build: build-rust
@@ -27,7 +27,7 @@ test-rust:
 test-stores:
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo clippy -p arky-store -p arky --all-targets --all-features --config 'build.rustflags=["--cfg", "store_tests"]' -- -D warnings
+    cargo clippy -p arky-store -p arky-cli --all-targets --all-features --config 'build.rustflags=["--cfg", "store_tests"]' -- -D warnings
     name="arky-test-mongo-$$"
     # MongoDB's recommended open-files limit; the store tests keep more WiredTiger files open than Docker's default 1024.
     docker run -d --rm --ulimit nofile=64000:64000 --name "$name" -p 127.0.0.1::27017 mongo:latest >/dev/null
@@ -46,7 +46,7 @@ test-stores:
     ARKY_TEST_MONGODB_URI="mongodb://127.0.0.1:$port" \
     ARKY_TEST_MINIO_ENDPOINT="$endpoint" ARKY_TEST_MINIO_BUCKET=arky-test \
     AWS_ACCESS_KEY_ID=arky-test AWS_SECRET_ACCESS_KEY=arky-test-secret \
-      cargo test -p arky-store -p arky --all-features --config 'build.rustflags=["--cfg", "store_tests"]'
+      cargo test -p arky-store -p arky-cli --all-features --config 'build.rustflags=["--cfg", "store_tests"]'
 
 # Full pipeline: lint everything, build everything, run tests.
 all: lint build test test-stores

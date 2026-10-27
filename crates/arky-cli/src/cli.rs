@@ -4,8 +4,8 @@ use core::fmt;
 use core::str::FromStr;
 use std::path::PathBuf;
 
-use arky_core::forms::Form;
-use arky_core::parser::ast::FrontmatterFormat;
+use arky::forms::Form;
+use arky::parser::ast::FrontmatterFormat;
 
 #[derive(Debug, clap::Subcommand)]
 pub enum AssetCommand {

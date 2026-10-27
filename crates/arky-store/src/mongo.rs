@@ -9,11 +9,11 @@ use core::fmt;
 use core::str::from_utf8;
 use core::time::Duration;
 
-use arky_core::bundle::{Missing, embedded_paths, media_type};
-use arky_core::forms::{Form, decode};
-use arky_core::parser::ast::RawDocument;
-use arky_core::parser::parse;
-use arky_core::writer::{self, WriteOptions};
+use arky::bundle::{Missing, embedded_paths, media_type};
+use arky::forms::{Form, decode};
+use arky::parser::ast::RawDocument;
+use arky::parser::parse;
+use arky::writer::{self, WriteOptions};
 use bson::oid::ObjectId;
 use bson::{Document, RawDocumentBuf, doc};
 use mongodb::error::{Error, ErrorKind, WriteFailure};
