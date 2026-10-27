@@ -1,4 +1,10 @@
 //! Files kept as objects in one bucket, through os-shim's `Bucket`.
+//!
+//! This module needs the `minio` feature. [`ObjectStore`] works over any
+//! os-shim [`Bucket`]: [`MinioBucket`] for a `MinIO` or other S3-compatible
+//! server, or [`MemoryBucket`](os_shim::bucket::MemoryBucket) in tests, which
+//! reaches no server. [`ObjectConfig`] says where a server's bucket is, and
+//! [`ObjectStore::open`] builds the store over it.
 
 use alloc::collections::BTreeMap;
 use core::fmt;
@@ -18,9 +24,38 @@ use crate::{
 /// The longest key S3 takes, in bytes.
 const LONGEST_KEY: usize = 1024;
 
-/// Markdown files in one bucket, under an optional key prefix. Over
+/// Files in one bucket, under an optional key prefix. Over
 /// `MinioBucket`, a delete's precondition is checked by a request of its own
 /// before the delete, not in one step with it.
+///
+/// With the prefix `vault`, the file `notes/a.md` is the object
+/// `vault/notes/a.md`; with none, it is the object `notes/a.md`. A key holds
+/// at most 1024 bytes. A revision is the object's `ETag`, as the bucket gives
+/// it. A precondition goes to the bucket with the put, as
+/// `Condition::Absent` or `Condition::ETag`, so the check and the write are
+/// one step. A save of a document and its files holds a lock object beside the
+/// document (see [`lock`]), and the store's `system` gives the clock that
+/// lock's age counts on.
+///
+/// ```rust
+/// use arky_store::object::ObjectStore;
+/// use arky_store::{Precondition, Store as _, StorePath};
+/// use os_shim::bucket::{Bucket as _, MemoryBucket};
+/// use os_shim::mock::MemorySystem;
+///
+/// #[tokio::main(flavor = "current_thread")]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let system = MemorySystem::new();
+///     let bucket = MemoryBucket::default();
+///     let store = ObjectStore::new(bucket.clone(), Some(StorePath::new("vault")?), &system);
+///     let path = StorePath::new("notes/a.md")?;
+///
+///     let written = store.write(&path, b"# A\n", &Precondition::Absent).await?;
+///     assert_eq!(bucket.list("").await?, ["vault/notes/a.md"]);
+///     assert_eq!(bucket.get("vault/notes/a.md").await?.etag, written.0);
+///     Ok(())
+/// }
+/// ```
 pub struct ObjectStore<'system, B> {
     bucket: B,
     lock: LockSettings,
@@ -63,12 +98,18 @@ impl<'system, B: Bucket> ObjectStore<'system, B> {
 
     /// How long the lock of a save lasts and how long a save waits on another,
     /// `LockSettings::default()` by default.
+    ///
+    /// The same settings decide which locks `remove_expired_locks` finds
+    /// expired.
     #[must_use]
     pub fn locking(self, lock: LockSettings) -> Self {
         Self { lock, ..self }
     }
 
     /// A store over `bucket`, its keys under `prefix`, its clock `system`'s.
+    ///
+    /// It sends no request. Pass `MemoryBucket` and `MemorySystem` for a store
+    /// that needs no server and no real clock.
     #[must_use]
     pub fn new(bucket: B, prefix: Option<StorePath>, system: &'system dyn System) -> Self {
         Self {
@@ -83,10 +124,15 @@ impl<'system, B: Bucket> ObjectStore<'system, B> {
     /// each one only while it is still the lock found, and gives the path of
     /// each lock it removed, sorted.
     ///
+    /// It clears the locks left behind by saves that stopped. Only objects whose
+    /// keys end with [`lock::SUFFIX`] count as locks, and a lock has expired
+    /// once it is older than the store's [`LockSettings::expires`].
+    ///
     /// # Errors
     ///
     /// `StoreError::Backend` when the store cannot be listed or a lock cannot
-    /// be read or removed.
+    /// be read or removed, and `StoreError::InvalidPath` for a key under
+    /// `under` that is not a store path.
     pub async fn remove_expired_locks(
         &self,
         under: Option<&StorePath>,
@@ -116,10 +162,43 @@ impl<'system> ObjectStore<'system, MinioBucket> {
     /// A store over the `MinIO` server `config` names, its keys read from the
     /// environment.
     ///
+    /// It reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` through
+    /// `system`, and sends no request: a server that cannot be reached fails
+    /// the first read or write, naming its path. Run the store's futures on
+    /// tokio. Over `RealSystem` the keys come from the process's environment,
+    /// and over `MemorySystem` from its `with_env`:
+    ///
+    /// ```rust
+    /// use arky_store::object::{ObjectConfig, ObjectStore};
+    /// use arky_store::{StoreError, StorePath};
+    /// use os_shim::mock::MemorySystem;
+    ///
+    /// let config = ObjectConfig::new(
+    ///     "http://127.0.0.1:9000".to_owned(),
+    ///     "us-east-1".to_owned(),
+    ///     "notes".to_owned(),
+    ///     Some(StorePath::new("vault")?),
+    /// );
+    /// let system = MemorySystem::new()
+    ///     .with_env("AWS_ACCESS_KEY_ID", "notes-app")?
+    ///     .with_env("AWS_SECRET_ACCESS_KEY", "a-secret")?;
+    /// assert!(ObjectStore::open(&system, config.clone()).is_ok());
+    ///
+    /// let no_keys = MemorySystem::new();
+    /// assert_eq!(
+    ///     ObjectStore::open(&no_keys, config).err(),
+    ///     Some(StoreError::Backend(
+    ///         "AWS_ACCESS_KEY_ID is not set: it holds the MinIO access key".to_owned()
+    ///     )),
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
     /// # Errors
     ///
     /// `Backend` naming the variable and what it holds when `AWS_ACCESS_KEY_ID`
-    /// or `AWS_SECRET_ACCESS_KEY` is not set or is not UTF-8.
+    /// or `AWS_SECRET_ACCESS_KEY` is not set or is not UTF-8. The message
+    /// never shows the variable's value.
     pub fn open(system: &'system dyn System, config: ObjectConfig) -> Result<Self, StoreError> {
         let access_key = variable(system, "AWS_ACCESS_KEY_ID", "the MinIO access key")?;
         let secret_key = variable(system, "AWS_SECRET_ACCESS_KEY", "the MinIO secret key")?;
@@ -212,6 +291,8 @@ impl<B: Bucket> Store for ObjectStore<'_, B> {
         }
     }
 
+    /// Deletes the object of `path` when `precondition` holds.
+    ///
     /// Under `Precondition::None` or `Precondition::Absent`, a delete where no
     /// file is succeeds, as S3 answers it.
     async fn delete(
@@ -225,6 +306,9 @@ impl<B: Bucket> Store for ObjectStore<'_, B> {
             .map_err(|error| failure(path, &error))
     }
 
+    /// Every file under `prefix`, sorted, with lock objects left out. One key
+    /// under the store's prefix that is not a store path fails the whole
+    /// listing with `StoreError::InvalidPath`.
     async fn list(&self, prefix: Option<&StorePath>) -> Result<Vec<StorePath>, StoreError> {
         let mut paths = self.all_paths(prefix).await?;
         paths.retain(|path| !path.as_str().ends_with(lock::SUFFIX));
@@ -251,6 +335,9 @@ impl<B: Bucket> Store for ObjectStore<'_, B> {
         read_at_path(self, file)
     }
 
+    /// Puts `bytes` at the key of `path` when `precondition` holds, and gives
+    /// the object's `ETag`. A key longer than 1024 bytes, prefix included, is
+    /// `StoreError::InvalidPath`.
     async fn write(
         &self,
         path: &StorePath,
@@ -278,6 +365,10 @@ impl<B: Bucket> Store for ObjectStore<'_, B> {
         Ok(Revision(etag))
     }
 
+    /// Holds the lock object of `path` from before the first file to after the
+    /// document. The lock's key, which is the document's key followed by
+    /// `.arky-lock`, must fit in 1024 bytes too, or the save is
+    /// `StoreError::InvalidPath`.
     fn write_with_embedded(
         &self,
         path: &StorePath,
@@ -294,15 +385,36 @@ impl<B: Bucket> Store for ObjectStore<'_, B> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ObjectConfig {
+    /// The bucket's name.
     pub bucket: String,
     /// The server's address, such as `http://127.0.0.1:9000`; required, no
     /// default.
     pub endpoint: String,
+    /// The key prefix every object of the store sits under, or `None` for the
+    /// bucket's root.
     pub prefix: Option<StorePath>,
+    /// The region the requests are signed for, such as `us-east-1`.
     pub region: String,
 }
 
 impl ObjectConfig {
+    /// The bucket `bucket` on the server at `endpoint` in `region`, its
+    /// objects under `prefix`.
+    ///
+    /// ```rust
+    /// use arky_store::StorePath;
+    /// use arky_store::object::ObjectConfig;
+    ///
+    /// let config = ObjectConfig::new(
+    ///     "http://127.0.0.1:9000".to_owned(),
+    ///     "us-east-1".to_owned(),
+    ///     "notes".to_owned(),
+    ///     Some(StorePath::new("vault")?),
+    /// );
+    /// assert_eq!(config.bucket, "notes");
+    /// assert_eq!(config.prefix, Some(StorePath::new("vault")?));
+    /// # Ok::<(), arky_store::StoreError>(())
+    /// ```
     #[must_use]
     pub const fn new(
         endpoint: String,

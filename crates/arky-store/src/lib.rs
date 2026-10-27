@@ -1,4 +1,396 @@
-//! Where arky keeps documents: the storage interface and its stores.
+//! Keeps arky's markdown documents, and the files they embed, in a folder, in
+//! an S3-compatible bucket or in `MongoDB`. Every store implements one async
+//! trait, [`Store`], and the [`document`] functions save and load a whole
+//! document through any of them.
+//!
+//! # The problem and who it is for
+//!
+//! A program that edits markdown notes has to save them somewhere, keep each
+//! picture a note embeds next to it, and never overwrite a change another
+//! process made in between. arky-store does that work. Each read gives a
+//! [`Revision`] and each write takes a [`Precondition`], so a save made from a
+//! stale read fails with [`StoreError::Conflict`]. In the file store and the
+//! `MinIO` store, a save of a note and its pictures holds a lock that expires,
+//! and both stores also run over os-shim's in-memory twins, so their tests
+//! need no disk, no server and no real clock.
+//!
+//! Use it beside [`arky`], which parses and writes the documents, when your
+//! program keeps markdown documents and wants one interface over a folder, a
+//! bucket and a database.
+//!
+//! # The stores
+//!
+//! | Store | What it keeps | Feature |
+//! | --- | --- | --- |
+//! | [`FileStore`](file::FileStore) | Each file at its path under a root folder, through an os-shim `System`: the disk, or `MemorySystem` in tests. | none |
+#![cfg_attr(
+    feature = "minio",
+    doc = "| [`ObjectStore`](object::ObjectStore) | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket`, or `MemoryBucket` in tests. | `minio` |"
+)]
+#![cfg_attr(
+    not(feature = "minio"),
+    doc = "| `ObjectStore` | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket`, or `MemoryBucket` in tests. | `minio` |"
+)]
+#![cfg_attr(
+    feature = "mongodb",
+    doc = "| [`MongoStore`](mongo::MongoStore) | Each document as one `MongoDB` record whose frontmatter a query can name, and each embedded file once, by its SHA-256, in a `MinIO` bucket. | `mongodb`, which turns on `minio` |"
+)]
+#![cfg_attr(
+    not(feature = "mongodb"),
+    doc = "| `MongoStore` | Each document as one `MongoDB` record whose frontmatter a query can name, and each embedded file once, by its SHA-256, in a `MinIO` bucket. | `mongodb`, which turns on `minio` |"
+)]
+//! | [`AnyStore`](any::AnyStore) | Whichever of the three a program opened at run time. | none; each variant needs its store's feature |
+//!
+//! # Getting started
+//!
+//! Add arky-store and arky from their git repository, arky for the forms and
+//! the write options. Add os-shim for a `System`, and tokio to run the
+//! futures:
+//!
+//! ```toml
+//! [dependencies]
+//! arky = { git = "https://github.com/tixena/arky" }
+//! arky-store = { git = "https://github.com/tixena/arky" }
+//! os-shim = "0.1"
+//! tokio = { version = "1", features = ["rt", "macros"] }
+//! ```
+//!
+//! This saves a recipe into a file store over `MemorySystem`, reads the stored
+//! text back, and loads the document again. A store keeps arky's form of a
+//! document, so the TOML frontmatter is written as YAML and the `*` list as a
+//! `-` list.
+//!
+//! ```rust
+//! use std::path::PathBuf;
+//!
+//! use arky::bundle::Missing;
+//! use arky::forms::Form;
+//! use arky::writer::{WriteOptions, write};
+//! use arky_store::file::FileStore;
+//! use arky_store::{Precondition, Store as _, StorePath, document};
+//! use os_shim::mock::MemorySystem;
+//!
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let system = MemorySystem::new();
+//!     let store = FileStore::new(PathBuf::from("/kitchen"), &system);
+//!     let path = StorePath::new("recipes/bread.md")?;
+//!     let options = WriteOptions::default();
+//!
+//!     let given = "+++\ntitle = \"Bread\"\n+++\n# Bread\n\n* flour\n* water\n";
+//!     document::put(
+//!         &store,
+//!         &path,
+//!         Form::Markdown,
+//!         given.as_bytes(),
+//!         &options,
+//!         &Precondition::Absent,
+//!         Missing::Refuse,
+//!     )
+//!     .await?;
+//!
+//!     let kept = "---\ntitle: Bread\n---\n# Bread\n\n- flour\n- water\n";
+//!     assert_eq!(store.read(&path).await?.bytes, kept.as_bytes());
+//!
+//!     let bundle = document::get(&store, &path, Missing::Refuse).await?;
+//!     assert_eq!(write(bundle.document(), &options)?, kept);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Use cases
+//!
+//! ## Save without losing another process's change
+//!
+//! An editor keeps the [`Revision`] of what it read and saves with
+//! [`Precondition::Matches`]. When another process saved in between, the save
+//! fails with [`StoreError::Conflict`] and the other change stays.
+//! [`Precondition::Absent`] creates a file only where none is. In the file
+//! store, a revision is `sha256:` and the hex SHA-256 of the bytes.
+//!
+//! ```rust
+//! use std::path::PathBuf;
+//!
+//! use arky_store::file::FileStore;
+//! use arky_store::{Precondition, Store as _, StoreError, StorePath};
+//! use os_shim::mock::MemorySystem;
+//!
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let system = MemorySystem::new();
+//!     let store = FileStore::new(PathBuf::from("/notes"), &system);
+//!     let path = StorePath::new("shopping.md")?;
+//!
+//!     let created = store.write(&path, b"- buy flour\n", &Precondition::Absent).await?;
+//!     assert_eq!(
+//!         created.0,
+//!         "sha256:b0bfa393f05d0de4aa77bc224fe78f44c17578dda48c0482267b60a20bd975e9",
+//!     );
+//!
+//!     let read = store.read(&path).await?;
+//!     store.write(&path, b"- buy flour\n- buy salt\n", &Precondition::None).await?;
+//!
+//!     let stale = Precondition::Matches(read.revision);
+//!     let saved = store.write(&path, b"- buy yeast\n", &stale).await;
+//!     assert_eq!(saved, Err(StoreError::Conflict(path.clone())));
+//!     assert_eq!(store.read(&path).await?.bytes, b"- buy flour\n- buy salt\n");
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## A document and the pictures it embeds
+//!
+//! [`document::put_bundle`] stores a document and each file it embeds at its
+//! path from the document's folder, and [`document::get`] gives them back as
+//! one [`BundledDocument`](arky::bundle::BundledDocument). An embedded note's
+//! own embeds travel too. [`document::put`] does the same from bytes in any
+//! [`Form`](arky::forms::Form), such as markdown whose pictures are data URIs,
+//! or a zip.
+//!
+//! ```rust
+//! use std::collections::BTreeMap;
+//! use std::path::PathBuf;
+//!
+//! use arky::bundle::{BundledDocument, Missing};
+//! use arky::parser::parse;
+//! use arky::writer::WriteOptions;
+//! use arky_store::file::FileStore;
+//! use arky_store::{Precondition, Store as _, StorePath, document};
+//! use os_shim::mock::MemorySystem;
+//!
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let system = MemorySystem::new();
+//!     let store = FileStore::new(PathBuf::from("/blog"), &system);
+//!     let path = StorePath::new("posts/bread.md")?;
+//!
+//!     let text = "# Bread\n\n![The loaf](media/loaf.png)\n";
+//!     let picture = b"\x89PNG\r\n\x1a\n not a real picture".to_vec();
+//!     let files = BTreeMap::from([("media/loaf.png".to_owned(), picture.clone())]);
+//!     let bundle = BundledDocument::new(parse(text).document, files, Missing::Refuse)?;
+//!
+//!     let options = WriteOptions::default();
+//!     document::put_bundle(&store, &path, &bundle, &options, &Precondition::Absent).await?;
+//!     let stored: Vec<String> = store.list(None).await?.iter().map(ToString::to_string).collect();
+//!     assert_eq!(stored, ["posts/bread.md", "posts/media/loaf.png"]);
+//!
+//!     let back = document::get(&store, &path, Missing::Refuse).await?;
+//!     assert_eq!(back.files(), ["media/loaf.png"]);
+//!     assert_eq!(back.file("media/loaf.png"), Some(picture.as_slice()));
+//!     assert_eq!(back, bundle);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Locks that expire
+//!
+//! A save of a document and its files holds the lock `<path>.arky-lock` beside
+//! the document. A save that finds a lock that has not expired waits once (2
+//! seconds by default) and looks again. A lock still there and not expired
+//! then fails the save with [`StoreError::Conflict`]. A lock left
+//! by a save that crashed expires (after 5 seconds by default): the next save
+//! removes it, and `remove_expired_locks` sweeps every one. Over
+//! `MemorySystem`, the wait moves the system's clock and returns at once. See
+//! [`lock`].
+//!
+//! ```rust
+//! use std::path::PathBuf;
+//! use std::time::Duration;
+//!
+//! use arky::bundle::Missing;
+//! use arky::forms::Form;
+//! use arky::writer::WriteOptions;
+//! use arky_store::document::{self, DocumentError};
+//! use arky_store::file::FileStore;
+//! use arky_store::lock::lock_of;
+//! use arky_store::{Precondition, Store as _, StoreError, StorePath};
+//! use os_shim::System as _;
+//! use os_shim::mock::MemorySystem;
+//!
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let system = MemorySystem::new().with_file("/notes/report.md.arky-lock", b"crashed")?;
+//!     let store = FileStore::new(PathBuf::from("/notes"), &system);
+//!     let path = StorePath::new("report.md")?;
+//!     let options = WriteOptions::default();
+//!     let started = system.now();
+//!
+//!     let refused = document::put(
+//!         &store,
+//!         &path,
+//!         Form::Markdown,
+//!         b"# Report\n",
+//!         &options,
+//!         &Precondition::None,
+//!         Missing::Refuse,
+//!     )
+//!     .await;
+//!     assert!(matches!(refused, Err(DocumentError::Store(StoreError::Conflict(_)))));
+//!     assert_eq!(system.now().duration_since(started)?, Duration::from_secs(2));
+//!
+//!     system.advance(Duration::from_secs(4))?;
+//!     assert_eq!(store.remove_expired_locks(None).await?, [lock_of(&path)?]);
+//!
+//!     document::put(
+//!         &store,
+//!         &path,
+//!         Form::Markdown,
+//!         b"# Report\n",
+//!         &options,
+//!         &Precondition::None,
+//!         Missing::Refuse,
+//!     )
+//!     .await?;
+//!     assert_eq!(store.read(&path).await?.bytes, b"# Report\n");
+//!     Ok(())
+//! }
+//! ```
+#![cfg_attr(
+    feature = "minio",
+    doc = r##"
+## A bucket, and the same bucket in memory in tests
+
+[`ObjectStore`](object::ObjectStore) keeps each file as an object under a key
+prefix: the file `posts/hello.md` under the prefix `blog` is the object
+`blog/posts/hello.md`. A precondition goes to the bucket with the write, so
+the check and the write are one step. In production,
+[`ObjectStore::open`](object::ObjectStore::open) builds the store over a
+`MinioBucket` from an [`ObjectConfig`](object::ObjectConfig), with its keys
+read from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. In a test,
+[`ObjectStore::new`](object::ObjectStore::new) takes os-shim's `MemoryBucket`,
+which reaches no server.
+
+```rust
+use arky::bundle::Missing;
+use arky::forms::Form;
+use arky::writer::WriteOptions;
+use arky_store::object::ObjectStore;
+use arky_store::{Precondition, Store as _, StoreError, StorePath, document};
+use os_shim::bucket::{Bucket as _, MemoryBucket};
+use os_shim::mock::MemorySystem;
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let system = MemorySystem::new();
+    let bucket = MemoryBucket::default();
+    let store = ObjectStore::new(bucket.clone(), Some(StorePath::new("blog")?), &system);
+    let path = StorePath::new("posts/hello.md")?;
+
+    document::put(
+        &store,
+        &path,
+        Form::Markdown,
+        b"# Hello\n",
+        &WriteOptions::default(),
+        &Precondition::Absent,
+        Missing::Refuse,
+    )
+    .await?;
+    assert_eq!(bucket.list("").await?, ["blog/posts/hello.md"]);
+
+    let again = store.write(&path, b"# Hello again\n", &Precondition::Absent).await;
+    assert_eq!(again, Err(StoreError::Conflict(path.clone())));
+    Ok(())
+}
+```
+"##
+)]
+#![cfg_attr(
+    feature = "mongodb",
+    doc = r#"
+## Find notes by their frontmatter in `MongoDB`
+
+[`MongoStore`](mongo::MongoStore) keeps each document as a record whose
+frontmatter is plain BSON under `doc.data`, dates as BSON dates, so a query
+can name a frontmatter key. [`MongoStore::find`](mongo::MongoStore::find)
+takes such a filter, and [`frontmatter_is`](mongo::record::frontmatter_is)
+builds one for a key. A `MongoStore` needs a running server, but the
+[`record`](mongo::record) functions convert a record with none, which is how a
+test checks a filter or a record. A found record's `document` written with
+[`arky::writer::write`] gives the document's text in arky's form.
+
+```rust
+use std::collections::BTreeMap;
+
+use arky::parser::ast::Value;
+use arky::parser::parse;
+use arky::writer::{WriteOptions, write};
+use arky_store::mongo::record::{from_record, frontmatter_is, revision_of, to_record};
+use bson::oid::ObjectId;
+use bson::{DateTime, doc};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let text = "---\nstatus: open\ndue: 2026-11-02\n---\n# Fix the oven\n";
+    let stored = from_record(doc! {
+        "_id": ObjectId::parse_str("6ad42f681472f05ab2ed9be7")?,
+        "doc": bson::serialize_to_bson(&parse(text).document)?,
+        "path": "tasks/oven.md",
+        "revision": revision_of(text, &BTreeMap::new()).0,
+    })?;
+    assert_eq!(stored.path, "tasks/oven.md");
+    assert_eq!(
+        write(&stored.document, &WriteOptions::default())?,
+        "---\nstatus: open\ndue: !!timestamp 2026-11-02\n---\n# Fix the oven\n",
+    );
+
+    let record = to_record(&stored)?;
+    let data = record.get_document("doc")?.get_document("data")?;
+    assert_eq!(data.get_str("status")?, "open");
+    let due = DateTime::parse_rfc3339_str("2026-11-02T00:00:00Z")?;
+    assert_eq!(data.get_datetime("due")?, &due);
+
+    let open = frontmatter_is("status", &Value::String("open".to_owned()))?;
+    assert_eq!(open, doc! { "doc.data.status": "open" });
+    Ok(())
+}
+```
+"#
+)]
+//!
+//! # Features
+//!
+//! No feature is on by default.
+//!
+//! | Feature | What it turns on | What your manifest also needs |
+//! | --- | --- | --- |
+//! | `minio` | The `object` module and `AnyStore::Minio`. | `os-shim` with its `minio` feature, to name `MinioBucket` or `MemoryBucket`. |
+//! | `mongodb` | The `mongo` module, `AnyStore::Mongo`, and `minio`. | `bson = { version = "3.1", features = ["serde"] }`, to write the filters `MongoStore::find` takes. A `MongoDB` server, and an S3-compatible server for the embedded files. |
+//! | `binary-format` | arky's `binary-format`, so `document::put` takes `Form::Binary`. | Nothing more. |
+//!
+//! ```toml
+//! [dependencies]
+//! arky-store = { git = "https://github.com/tixena/arky", features = ["mongodb"] }
+//! bson = { version = "3.1", features = ["serde"] }
+//! os-shim = { version = "0.1", features = ["minio"] }
+//! ```
+//!
+//! Every method of [`Store`] returns a future. Over `MemorySystem` and
+//! `MemoryBucket` any executor runs them, and they never wait on a real clock.
+//! Over the disk, a bucket on a server or `MongoDB`, run them on tokio with its
+//! timer on, as `#[tokio::main]` builds it: a save that finds another save's
+//! lock, and a `MongoDB` save that retries a claim, wait on tokio's timer.
+//!
+//! # Limits
+//!
+//! - A store keeps arky's form of what [`document::put`] gives it, not the
+//!   bytes: a round trip is not byte-exact. [`Store::write`] on the file store
+//!   and the `MinIO` store keeps the bytes as given.
+//! - The `MongoDB` store keeps the parsed tree and reads a document back in
+//!   arky's form: a valid frontmatter in YAML, whatever syntax it was written
+//!   in, and a frontmatter no entry of reads as it was written. A record nests
+//!   at most 100 levels, so a document of 13 nested list items is refused.
+//! - Each store writes its own [`Revision`]: compare revisions of one store
+//!   only.
+//! - The file store checks a precondition and then writes, in two steps. In
+//!   every store, a plain [`Store::write`] or [`Store::delete`] takes no lock.
+//! - A save that runs past its lock's expiry fails with
+//!   [`StoreError::Conflict`]. Raise [`LockSettings::expires`](lock::LockSettings::expires)
+//!   for saves of many large files.
+//! - What a delete where no file is answers differs per store: see each
+//!   store's `delete`.
+//! - There is no in-memory `MongoDB` store, and `AnyStore::Minio` holds only a
+//!   store over `MinioBucket`.
+//! - An object key holds at most 1024 bytes, the key prefix included.
 
 extern crate alloc;
 
@@ -21,10 +413,15 @@ use core::{fmt, future};
 
 /// A file's place in a store: parts joined by `/`, none empty, none `.` or
 /// `..`, no `\`, with no `/` at either end.
+///
+/// A store path is relative to the store: to the root folder of the file
+/// store, to the key prefix of the `MinIO` store. Paths sort in byte order,
+/// the order [`Store::list`] gives them in.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StorePath(String);
 
 impl StorePath {
+    /// The path as text.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
@@ -33,9 +430,23 @@ impl StorePath {
     /// The path of `name`, a path inside a bundle, from the folder of `self`:
     /// `notes/report.md` and `media/logo.png` give `notes/media/logo.png`.
     ///
+    /// This is where a store keeps a file a document embeds.
+    ///
+    /// ```rust
+    /// use arky_store::{StoreError, StorePath};
+    ///
+    /// let report = StorePath::new("notes/report.md")?;
+    /// assert_eq!(report.beside("media/logo.png")?.as_str(), "notes/media/logo.png");
+    ///
+    /// let refused = Err(StoreError::InvalidPath("notes/../logo.png".to_owned()));
+    /// assert_eq!(report.beside("../logo.png"), refused);
+    /// # Ok::<(), StoreError>(())
+    /// ```
+    ///
     /// # Errors
     ///
-    /// `StoreError::InvalidPath` when the path breaks one of the rules above.
+    /// `StoreError::InvalidPath` when the path it gives breaks one of the
+    /// rules of [`StorePath`].
     pub fn beside(&self, name: &str) -> Result<Self, StoreError> {
         self.0.rsplit_once('/').map_or_else(
             || Self::new(name),
@@ -43,9 +454,22 @@ impl StorePath {
         )
     }
 
+    /// The store path `text` names.
+    ///
+    /// ```rust
+    /// use arky_store::{StoreError, StorePath};
+    ///
+    /// assert_eq!(StorePath::new("notes/report.md")?.as_str(), "notes/report.md");
+    /// for broken in ["", "/notes/a.md", "notes/", "notes//a.md", "./a.md", "notes/../a.md", "a\\b.md"] {
+    ///     assert_eq!(StorePath::new(broken), Err(StoreError::InvalidPath(broken.to_owned())));
+    /// }
+    /// # Ok::<(), StoreError>(())
+    /// ```
+    ///
     /// # Errors
     ///
-    /// `StoreError::InvalidPath` when `text` breaks one of the rules above.
+    /// `StoreError::InvalidPath` when `text` breaks one of the rules of
+    /// [`StorePath`].
     pub fn new(text: &str) -> Result<Self, StoreError> {
         let valid = text
             .split('/')
@@ -66,18 +490,31 @@ impl fmt::Display for StorePath {
 
 /// What a store gives with the bytes it read, and takes back for a write that
 /// waits for nothing else to have changed the file.
+///
+/// Its text is the store's own: `sha256:` and the hex SHA-256 of the bytes in
+/// the file store, the object's `ETag` as the bucket gives it in the `MinIO`
+/// store, and the hash of the document's text and its files in the `MongoDB`
+/// store. Compare revisions of one store only. Code outside this crate cannot
+/// build one: it gets one from [`Store::read`] or [`Store::write`], and passes
+/// it back in [`Precondition::Matches`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Revision(pub String);
 
+/// A file as [`Store::read`] gives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Stored {
+    /// The file's bytes. The `MongoDB` store gives a document in arky's form.
     pub bytes: Vec<u8>,
+    /// The revision to pass back in [`Precondition::Matches`].
     pub revision: Revision,
 }
 
 /// What must hold for a write or a delete to go ahead.
+///
+/// A precondition that does not hold fails the write or the delete with
+/// [`StoreError::Conflict`], and the file stays as it was.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Precondition {
@@ -89,18 +526,29 @@ pub enum Precondition {
     None,
 }
 
+/// Why a store refused or failed an operation.
+///
+/// The messages of `Conflict`, `InvalidPath` and `NotFound` name the path:
+/// `notes/none.md: no file at this path`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum StoreError {
     /// The store failed: the file system, the network, the server.
     #[error("{0}")]
     Backend(String),
+    /// The precondition does not hold, or another save holds the document's
+    /// lock.
     #[error("{0}: the file changed, or a file is already there")]
     Conflict(StorePath),
+    /// Text that is not a store path, or a path the store cannot hold, such as
+    /// an object key longer than 1024 bytes.
     #[error("`{0}` is not a store path")]
     InvalidPath(String),
+    /// No file is at the path.
     #[error("{0}: no file at this path")]
     NotFound(StorePath),
+    /// An operation the store cannot do. None of this crate's stores returns
+    /// it.
     #[error("this store cannot {0}")]
     Unsupported(&'static str),
 }
@@ -109,13 +557,33 @@ pub enum StoreError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Capabilities {
-    /// A precondition is checked and the write done as one step.
+    /// A precondition is checked and the write done as one step: `false` in
+    /// the file store, `true` in the `MinIO` store and the `MongoDB` store.
     pub atomic_preconditions: bool,
 }
 
+/// Where documents and the files they embed are kept: files read, written,
+/// deleted and listed by [`StorePath`].
+///
+/// Each method returns a future that is `Send`. [`file::FileStore`] is always
+/// here, `object::ObjectStore` with the `minio` feature, `mongo::MongoStore`
+/// with the `mongodb` feature, and [`any::AnyStore`] holds any of them. Code
+/// outside this crate cannot build a [`Revision`], a [`Stored`] or a
+/// [`Capabilities`], so it implements `Store` only by passing each call on to
+/// one of these stores.
 pub trait Store {
+    /// What this store can do that not every store can.
     fn capabilities(&self) -> Capabilities;
 
+    /// Deletes the file at `path` when `precondition` holds.
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::Conflict` when `precondition` does not hold, which
+    /// includes `Precondition::Matches` where no file is.
+    /// `StoreError::NotFound` where no file is under `Precondition::None` or
+    /// `Precondition::Absent`, except in the `MinIO` store, whose delete then
+    /// succeeds. `StoreError::Backend` when the store fails.
     fn delete(
         &self,
         path: &StorePath,
@@ -124,15 +592,34 @@ pub trait Store {
 
     /// Every file under `prefix`, or under the root with no prefix, at any
     /// depth, in byte order of their paths.
+    ///
+    /// The file store and the `MinIO` store leave lock files out. The `MongoDB`
+    /// store lists documents only, not the files they embed.
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::InvalidPath` when a name under `prefix` is not a store
+    /// path, and `StoreError::Backend` when the store fails.
     fn list(
         &self,
         prefix: Option<&StorePath>,
     ) -> impl Future<Output = Result<Vec<StorePath>, StoreError>> + Send;
 
+    /// The bytes of the file at `path`, and their revision.
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::NotFound` where no file is, and `StoreError::Backend` when
+    /// the store fails.
     fn read(&self, path: &StorePath) -> impl Future<Output = Result<Stored, StoreError>> + Send;
 
     /// The bytes of `file`, which the document at `_document` embeds. By
     /// default, the file at that path.
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::NotFound` where the store holds no such file, and
+    /// `StoreError::Backend` when the store fails.
     fn read_embedded(
         &self,
         _document: &StorePath,
@@ -146,6 +633,15 @@ pub trait Store {
 
     /// Writes `bytes` whole: a reader sees the old file or the new one, never a
     /// part of either.
+    ///
+    /// The write goes ahead only when `precondition` holds, and gives the new
+    /// revision. It takes no lock, so it does not wait on a save.
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::Conflict` when `precondition` does not hold,
+    /// `StoreError::InvalidPath` for a path the store cannot hold, and
+    /// `StoreError::Backend` when the store fails.
     fn write(
         &self,
         path: &StorePath,
@@ -156,6 +652,15 @@ pub trait Store {
     /// Writes the document `text` at `path` and each file of `files`, which it
     /// embeds. By default, each file at its path, with no precondition, then the
     /// text under `precondition`; no file is deleted.
+    ///
+    /// `precondition` applies to the document only. The file store and the
+    /// `MinIO` store hold the document's lock for the whole save (see
+    /// [`lock`]); the `MongoDB` store keeps each file once, by its SHA-256.
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::Conflict` when `precondition` does not hold or another
+    /// save holds the document's lock, and the errors of [`Store::write`].
     fn write_with_embedded(
         &self,
         path: &StorePath,

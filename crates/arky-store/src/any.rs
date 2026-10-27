@@ -1,4 +1,8 @@
 //! One type for whichever store a caller opened.
+//!
+//! A program that picks its store from configuration at run time keeps the
+//! store in an [`AnyStore`] and calls the same [`Store`] methods and
+//! [`document`](crate::document) functions whatever it picked.
 
 use alloc::collections::BTreeMap;
 
@@ -14,11 +18,86 @@ use crate::{Capabilities, Precondition, Revision, Store, StoreError, StorePath, 
 
 /// Whichever store a caller opened. Each variant is behind its store's
 /// cargo feature.
+///
+/// It implements [`Store`] by passing each call to the store it holds.
+#[cfg_attr(
+    not(feature = "minio"),
+    doc = r##"
+```rust
+use std::path::PathBuf;
+
+use arky_store::any::AnyStore;
+use arky_store::file::FileStore;
+use arky_store::{Precondition, Store as _, StorePath};
+use os_shim::mock::MemorySystem;
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let system = MemorySystem::new();
+    let store = AnyStore::File(FileStore::new(PathBuf::from("/notes"), &system));
+    let path = StorePath::new("ideas.md")?;
+    store.write(&path, b"# Ideas\n", &Precondition::Absent).await?;
+    assert_eq!(store.read(&path).await?.bytes, b"# Ideas\n");
+    assert!(!store.capabilities().atomic_preconditions);
+    Ok(())
+}
+```
+"##
+)]
+#[cfg_attr(
+    feature = "minio",
+    doc = r##"
+Here `open` picks the store a target names, `file:<root>` or
+`minio:<bucket>`, and the program calls the same methods whatever it picked:
+
+```rust
+use std::path::PathBuf;
+
+use arky_store::any::AnyStore;
+use arky_store::file::FileStore;
+use arky_store::object::{ObjectConfig, ObjectStore};
+use arky_store::{Precondition, Store as _, StoreError, StorePath};
+use os_shim::System;
+use os_shim::mock::MemorySystem;
+
+fn open<'s>(target: &str, system: &'s dyn System) -> Result<AnyStore<'s>, StoreError> {
+    if let Some(root) = target.strip_prefix("file:") {
+        return Ok(AnyStore::File(FileStore::new(PathBuf::from(root), system)));
+    }
+    let Some(bucket) = target.strip_prefix("minio:") else {
+        return Err(StoreError::Backend(format!("no store for `{target}`")));
+    };
+    let config = ObjectConfig::new(
+        "http://127.0.0.1:9000".to_owned(),
+        "us-east-1".to_owned(),
+        bucket.to_owned(),
+        None,
+    );
+    Ok(AnyStore::Minio(ObjectStore::open(system, config)?))
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let system = MemorySystem::new();
+    let store = open("file:/notes", &system)?;
+    let path = StorePath::new("ideas.md")?;
+    store.write(&path, b"# Ideas\n", &Precondition::Absent).await?;
+    assert_eq!(store.read(&path).await?.bytes, b"# Ideas\n");
+    assert!(!store.capabilities().atomic_preconditions);
+    Ok(())
+}
+```
+"##
+)]
 #[non_exhaustive]
 pub enum AnyStore<'system> {
+    /// The file store.
     File(FileStore<'system>),
+    /// The `MinIO` store, over a bucket on a server. It needs the `minio`
+    /// feature.
     #[cfg(feature = "minio")]
     Minio(ObjectStore<'system, MinioBucket>),
+    /// The `MongoDB` store. It needs the `mongodb` feature.
     #[cfg(feature = "mongodb")]
     Mongo(MongoStore<'system>),
 }

@@ -3,6 +3,22 @@
 //!
 //! The frontmatter is stored as plain BSON values, dates as BSON dates, so a
 //! query can name a frontmatter key.
+//!
+//! A date is stored as a BSON date at midnight UTC, and a date-time as its
+//! instant in UTC. A time of day is stored as `{ t: "time", v: "07:32:00" }`,
+//! and a float that is not finite as the text `nan`, `inf` or `-inf`.
+//!
+//! [`StoredDocument`] is the record of a document, [`StoredObject`] the record
+//! of an embedded file's object, and [`Claim`] a document's claim on that
+//! object. [`to_record`], [`from_record`], [`frontmatter_is`] and
+//! [`revision_of`] need no server.
+//!
+//! Each record type also carries the `MongoDB` layer tixschema generates:
+//! `MONGO_FIELDS`, whose typed paths build `bson` filters and updates, and
+//! typed operations such as `find` over a `mongodb::Collection` of
+//! `bson::Document`. The modules `claim_schema`, `stored_document_schema` and
+//! `stored_object_schema` hold the filter, update and error types those
+//! name.
 
 use alloc::collections::BTreeMap;
 use core::iter;
@@ -28,7 +44,9 @@ pub const NO_DOCUMENT: &str = "none";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Claim {
+    /// The store path of the document that embeds the file.
     pub document: String,
+    /// The store path of the embedded file, beside the document.
     pub path: String,
     /// The save that made the claim: `None` for a claim written before claims
     /// named one.
@@ -43,13 +61,20 @@ pub struct Claim {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct StoredDocument {
+    /// The parsed document, stored under `doc`. Its frontmatter is `doc.data`.
     #[serde(rename = "doc")]
     pub document: RawDocument,
+    /// The SHA-256 of each file the document embeds, by the file's path in
+    /// the bundle.
     #[serde(default)]
     pub files: BTreeMap<String, String>,
+    /// The record's `_id`.
     #[serde(rename = "_id")]
     pub id: ObjectId,
+    /// The document's store path, unique in the collection.
     pub path: String,
+    /// The document's revision: what `revision_of` gives for its text in
+    /// arky's form and the SHA-256 of each file it embeds.
     pub revision: String,
     /// The save that wrote the record: `None` for a record written before
     /// records named one.
@@ -67,15 +92,24 @@ pub struct StoredDocument {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct StoredObject {
+    /// The file's media type, from its extension, such as `image/png`.
     pub content_type: String,
+    /// Whether a deletion holds the record.
     #[serde(default)]
     pub deleting: bool,
+    /// The alt text of the first embed that names the file.
     pub description: String,
+    /// Each document's claim on the object. The object is deleted once none
+    /// is left.
     pub embedded_by: Vec<Claim>,
+    /// The SHA-256 of the object's bytes, stored as `_id`.
     #[serde(rename = "_id")]
     pub id: String,
+    /// The object's path in the store of the files: `files/<sha256>`.
     pub object: String,
+    /// The file's size in bytes.
     pub size: u64,
+    /// Whether the object is in the bucket.
     pub stored: bool,
 }
 
@@ -115,6 +149,28 @@ pub fn to_record(stored: &StoredDocument) -> Result<Document, StoreError> {
 
 /// A record read back with plain serde.
 ///
+/// A record with no `files` reads with none, and one with no `save` reads with
+/// `None`.
+///
+/// ```rust
+/// use arky::parser::parse;
+/// use arky_store::mongo::record::{from_record, to_record};
+/// use bson::doc;
+/// use bson::oid::ObjectId;
+///
+/// let record = doc! {
+///     "doc": bson::serialize_to_bson(&parse("# Groceries\n").document)?,
+///     "_id": ObjectId::parse_str("6ad42f681472f05ab2ed9be7")?,
+///     "path": "lists/groceries.md",
+///     "revision": "sha256:0",
+/// };
+/// let stored = from_record(record)?;
+/// assert_eq!(stored.path, "lists/groceries.md");
+/// assert!(stored.files.is_empty() && stored.save.is_none());
+/// assert_eq!(to_record(&stored)?.get_str("path")?, "lists/groceries.md");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
 /// # Errors
 ///
 /// `StoreError::Backend` naming the record's `_id` and serde's first error.
@@ -129,6 +185,23 @@ pub fn from_record(record: Document) -> Result<StoredDocument, StoreError> {
 /// The filter on the frontmatter key `key`, the value as `to_record` stores
 /// it: `{ "doc.data.<key>": value }`, or a `$getField` match for a key a
 /// dotted path cannot name, one holding a `.` or starting with `$`.
+///
+/// ```rust
+/// use arky::parser::ast::Value;
+/// use arky_store::mongo::record::frontmatter_is;
+/// use bson::doc;
+///
+/// let open = frontmatter_is("status", &Value::String("open".to_owned()))?;
+/// assert_eq!(open.to_string(), r#"{ "doc.data.status": "open" }"#);
+///
+/// let dotted = frontmatter_is("v1.2", &Value::Integer(3))?;
+/// let by_name = doc! { "$expr": { "$eq": [
+///     { "$getField": { "field": { "$literal": "v1.2" }, "input": "$doc.data" } },
+///     3_i64,
+/// ] } };
+/// assert_eq!(dotted, by_name);
+/// # Ok::<(), arky_store::StoreError>(())
+/// ```
 ///
 /// # Errors
 ///
@@ -150,6 +223,22 @@ pub fn frontmatter_is(key: &str, value: &Value) -> Result<Document, StoreError> 
 /// `sha256:` and the SHA-256 of `text` and of each file of `files`, its path
 /// in the bundle and the SHA-256 of its bytes, each part preceded by its
 /// length in bytes, in decimal, and a `:`.
+///
+/// ```rust
+/// use std::collections::BTreeMap;
+///
+/// use arky_store::mongo::record::revision_of;
+///
+/// assert_eq!(
+///     revision_of("", &BTreeMap::new()).0,
+///     "sha256:ba768b331fd86cec803be04e56ab2b3d4c0e98ef4ee4fcd4e72ad7cce61a1d1f",
+/// );
+/// let logo = BTreeMap::from([("media/logo.png".to_owned(), "abc".to_owned())]);
+/// assert_eq!(
+///     revision_of("# Report\n", &logo).0,
+///     "sha256:b3dba8daff13fe05db0539675fb03aa88556e0d780a5c274135db17d8699c755",
+/// );
+/// ```
 #[must_use]
 pub fn revision_of(text: &str, files: &BTreeMap<String, String>) -> Revision {
     let mut hashed = String::new();

@@ -1,6 +1,20 @@
 //! Files kept in a MongoDB collection, one record each, and the files they
 //! embed kept as objects of a `MinIO` bucket, each named by a record of a
 //! second collection.
+//!
+//! This module needs the `mongodb` feature, which turns on `minio`.
+//! [`MongoStore`] keeps each document as its parsed tree, its frontmatter as
+//! plain BSON that a query can name; [`MongoStore::find`] takes such a query,
+//! and [`record::frontmatter_is`] builds one. Each file a document embeds is
+//! kept once, by the SHA-256 of its bytes, in an [`ObjectStore`] over a
+//! `MinioBucket`, and is deleted once no document embeds it. The [`record`]
+//! module holds the record types and the functions that convert them, which
+//! need no server.
+//!
+//! A `MongoStore` needs a `MongoDB` server and an S3-compatible server for the
+//! files, and its futures need tokio with its timer on: a save that finds a
+//! file's record held by a deletion tries up to 20 times, 50 milliseconds
+//! apart. It takes no lock.
 
 pub mod record;
 
@@ -92,6 +106,16 @@ enum Replaced {
 /// Each file they embed is the object `files/<sha256>` of `files`, named by
 /// one record of `<collection>_files`, which has an index on
 /// `embedded_by.path`. An object nothing embeds is deleted, then its record.
+///
+/// A record holds the parsed document, not its bytes: [`Store::read`] gives
+/// it back in arky's form, a valid frontmatter in YAML, whatever syntax it was
+/// written in, and a frontmatter no entry of reads as it was written, in its
+/// own syntax. Its revision is what [`record::revision_of`] gives for that
+/// text and the SHA-256 of each file it embeds, so a changed picture changes
+/// the document's revision. A read of the path of an embedded file gives that
+/// file's bytes, but [`Store::list`] gives the paths of documents only. A
+/// record nests at most 100 levels, so a document of 13 nested list items is
+/// refused.
 pub struct MongoStore<'system> {
     collection: Collection<Document>,
     files: ObjectStore<'system, MinioBucket>,
@@ -181,6 +205,16 @@ impl<'system> MongoStore<'system> {
 
     /// Every record `filter` matches, read through `from_record`.
     ///
+    /// A record's fields are `path`, `revision`, `save`, `files` and `doc`,
+    /// the document's tree, whose frontmatter is `doc.data`: the filter
+    /// `doc! { "doc.data.status": "open" }` matches the documents whose
+    /// `status` is `open`. [`record::frontmatter_is`] builds that filter for
+    /// any key and value.
+    ///
+    /// Write a found record's `document` with [`writer::write`] for its text,
+    /// or call [`document::get`](crate::document::get) with
+    /// `StorePath::new(&stored.path)?` for the document with its files.
+    ///
     /// # Errors
     ///
     /// `StoreError::Backend` with the driver's message, or for a record that
@@ -200,6 +234,10 @@ impl<'system> MongoStore<'system> {
 
     /// Finishes each deletion that stopped after it marked its record: deletes
     /// the object, then the record, and gives the SHA-256 of each, sorted.
+    ///
+    /// Until then, a save of a document that embeds the same bytes fails,
+    /// naming the deletion. [`object_path`] gives the path of each object
+    /// deleted. Run it only while nothing else writes to the store.
     ///
     /// # Errors
     ///
@@ -268,6 +306,28 @@ impl<'system> MongoStore<'system> {
     /// in `files`, and makes the unique index on `path` and the index on
     /// `embedded_by.path` of `<collection>_files` where they are missing.
     ///
+    /// It reads the indexes at once, so the server must be reachable, and it
+    /// runs inside a tokio runtime. `files` is usually
+    /// [`ObjectStore::open`]'s store over the bucket that keeps the files:
+    ///
+    /// ```rust
+    /// use arky_store::StoreError;
+    /// use arky_store::mongo::MongoStore;
+    /// use arky_store::object::{ObjectConfig, ObjectStore};
+    /// use os_shim::System;
+    ///
+    /// async fn open_store(system: &dyn System) -> Result<MongoStore<'_>, StoreError> {
+    ///     let config = ObjectConfig::new(
+    ///         "http://127.0.0.1:9000".to_owned(),
+    ///         "us-east-1".to_owned(),
+    ///         "notes".to_owned(),
+    ///         None,
+    ///     );
+    ///     let files = ObjectStore::open(system, config)?;
+    ///     MongoStore::open("mongodb://localhost:27017", "notes", "documents", files).await
+    /// }
+    /// ```
+    ///
     /// # Errors
     ///
     /// `StoreError::Backend` with the driver's message.
@@ -309,6 +369,11 @@ impl<'system> MongoStore<'system> {
     }
 
     /// The document at `path`, with its revision.
+    ///
+    /// The tree is read back from BSON: each node's `kind` is empty, and each
+    /// frontmatter value is what BSON held. A date-time comes back as an
+    /// offset date-time in UTC, to the millisecond, and one at midnight UTC as
+    /// a date.
     ///
     /// # Errors
     ///
@@ -793,6 +858,8 @@ impl Store for MongoStore<'_> {
         self.tidy(path, &removed).await
     }
 
+    /// The path of every document under `prefix`, sorted. The files the
+    /// documents embed are not listed.
     async fn list(&self, prefix: Option<&StorePath>) -> Result<Vec<StorePath>, StoreError> {
         let filter = prefix.map_or_else(Document::new, |folder| {
             let pattern = format!("^{}/", escaped(folder.as_str()));
@@ -821,8 +888,12 @@ impl Store for MongoStore<'_> {
         Ok(paths)
     }
 
+    /// The document at `path` in arky's form: a valid frontmatter in YAML, and
+    /// one no entry of reads as it was written.
+    ///
     /// A path no document is at reads as an embedded file: the object that
-    /// the record of a document claiming the path names.
+    /// the record of a document claiming the path names, with the revision
+    /// `sha256:` and the hex SHA-256 of its bytes.
     async fn read(&self, path: &StorePath) -> Result<Stored, StoreError> {
         let (document, revision) = match self.read_document(path).await {
             Ok(read) => read,
@@ -843,6 +914,9 @@ impl Store for MongoStore<'_> {
         })
     }
 
+    /// The bytes of the object that the record of `document` names for `file`:
+    /// `StoreError::NotFound` when no record is at `document`, the record
+    /// names no such file, or the bucket does not hold the object.
     fn read_embedded(
         &self,
         document: &StorePath,
@@ -851,6 +925,10 @@ impl Store for MongoStore<'_> {
         self.embedded_file(document, file)
     }
 
+    /// Reads `bytes` as markdown and stores the tree through
+    /// [`MongoStore::write_document`]. It uploads no file, so a picture
+    /// written as a data URI is not kept; store files through
+    /// `write_with_embedded` or [`document::put`](crate::document::put).
     async fn write(
         &self,
         path: &StorePath,
@@ -863,6 +941,10 @@ impl Store for MongoStore<'_> {
             .await
     }
 
+    /// Stores the document and each file of `files` once, by its SHA-256,
+    /// uploading only the objects the bucket does not hold yet, then deletes
+    /// each object no document embeds any more. Every file must sit under the
+    /// folder of `path`, or the save fails with `StoreError::Backend`.
     fn write_with_embedded(
         &self,
         path: &StorePath,
@@ -1095,6 +1177,17 @@ fn named_by(path: &StorePath, held: Document) -> Result<Replaced, StoreError> {
 
 /// The path, in the bucket of the store's files, of the object whose bytes
 /// have the SHA-256 `hash`: `files/<sha256>`.
+///
+/// ```rust
+/// use arky_store::mongo::object_path;
+///
+/// let hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+/// assert_eq!(
+///     object_path(hash)?.as_str(),
+///     "files/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+/// );
+/// # Ok::<(), arky_store::StoreError>(())
+/// ```
 ///
 /// # Errors
 ///

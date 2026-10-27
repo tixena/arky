@@ -1,4 +1,10 @@
 //! The store over a file system, through os-shim.
+//!
+//! [`FileStore`] keeps each file at its store path under a root folder. It
+//! reads and writes through an os-shim [`System`]:
+//! [`RealSystem`](os_shim::real::RealSystem) for the disk, or
+//! [`MemorySystem`](os_shim::mock::MemorySystem) in tests, which needs no disk
+//! and moves its own clock when a save waits on a lock.
 
 use alloc::collections::BTreeMap;
 use core::fmt::{self, Write as _};
@@ -19,6 +25,12 @@ static WRITES: AtomicU64 = AtomicU64::new(0);
 
 /// Files under a root folder, read and written through os-shim. A revision
 /// is the SHA-256 of the file's bytes.
+///
+/// The revision's text is `sha256:` and 64 lowercase hex digits. A write goes
+/// to a hidden temporary file beside the target, which is then renamed over
+/// it, so a reader never sees half a file. A precondition is checked, then
+/// the file written, in two steps. Only [`Store::write_with_embedded`] takes
+/// the document's lock; a plain write or delete does not.
 pub struct FileStore<'system> {
     follow_links: bool,
     hidden: bool,
@@ -73,6 +85,11 @@ impl<'system> FileStore<'system> {
     }
 
     /// The two flags `walk_dir` takes, `false` by default.
+    ///
+    /// They set what [`Store::list`] and `remove_expired_locks` walk:
+    /// `follow_links` follows symbolic links, and `hidden` includes entries
+    /// under a path part that starts with `.`. Over `RealSystem`, the walk also
+    /// leaves out what `.gitignore` files name.
     #[must_use]
     pub fn listing(self, follow_links: bool, hidden: bool) -> Self {
         Self {
@@ -129,12 +146,38 @@ impl<'system> FileStore<'system> {
 
     /// How long the lock of a save lasts and how long a save waits on another,
     /// `LockSettings::default()` by default.
+    ///
+    /// The same settings decide which locks `remove_expired_locks` finds
+    /// expired.
     #[must_use]
     pub fn locking(self, lock: LockSettings) -> Self {
         Self { lock, ..self }
     }
 
     /// A store whose listing follows no link and leaves hidden entries out.
+    ///
+    /// Each store path is relative to `root`: with the root `/notes`, the file
+    /// `recipes/bread.md` is `/notes/recipes/bread.md` on `system`.
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    ///
+    /// use arky_store::file::FileStore;
+    /// use arky_store::{Precondition, Store as _, StorePath};
+    /// use os_shim::System as _;
+    /// use os_shim::mock::MemorySystem;
+    ///
+    /// #[tokio::main(flavor = "current_thread")]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let system = MemorySystem::new();
+    ///     let store = FileStore::new(PathBuf::from("/notes"), &system);
+    ///     let path = StorePath::new("recipes/bread.md")?;
+    ///     store.write(&path, b"# Bread\n", &Precondition::Absent).await?;
+    ///     let on_system = system.read_to_string("/notes/recipes/bread.md".as_ref())?;
+    ///     assert_eq!(on_system, "# Bread\n");
+    ///     Ok(())
+    /// }
+    /// ```
     #[must_use]
     pub fn new(root: PathBuf, system: &'system dyn System) -> Self {
         Self {
@@ -184,10 +227,15 @@ impl<'system> FileStore<'system> {
     /// each one only while it is still the lock found, and gives the path of
     /// each lock it removed, sorted.
     ///
+    /// It clears the locks left behind by saves that stopped. Only files whose
+    /// names end with [`lock::SUFFIX`] count as locks, and a lock has expired
+    /// once it is older than the store's [`LockSettings::expires`].
+    ///
     /// # Errors
     ///
     /// `StoreError::Backend` when the store cannot be listed or a lock cannot
-    /// be read or removed.
+    /// be read or removed, and `StoreError::InvalidPath` for a name under
+    /// `under` that is not a store path.
     pub async fn remove_expired_locks(
         &self,
         under: Option<&StorePath>,
@@ -296,6 +344,9 @@ impl Store for FileStore<'_> {
         }
     }
 
+    /// Deletes the file at `path` when `precondition` holds. Where no file is,
+    /// it fails with `StoreError::NotFound` under `Precondition::None` and
+    /// `Precondition::Absent`.
     fn delete(
         &self,
         path: &StorePath,
@@ -304,6 +355,8 @@ impl Store for FileStore<'_> {
         future::ready(self.delete_file(path, precondition))
     }
 
+    /// Every file under `prefix`, sorted, with lock files left out, and hidden
+    /// entries left out unless [`FileStore::listing`] lets them in.
     fn list(
         &self,
         prefix: Option<&StorePath>,

@@ -1,5 +1,159 @@
 //! What a consumer of arky adds to the tree: its own node types, which it
 //! gives to the nodes it claims.
+//!
+//! An [`Extension`] has a node type, a `claim` function and a `write` function. arky builds the
+//! whole tree with a byte span on every node, then offers each node to the extensions, children
+//! before parents, as a [`Construct`]. A node an extension claims goes into the `kind` field of
+//! the plain node, and [`write`](crate::writer::write) writes it back through the extension's
+//! `write`, which receives the plain node as a [`Written`] and a [`Writer`].
+//!
+//! [`parse`](crate::parser::parse) reads with [`Markdown`] alone, arky's own extension, which
+//! reads a `markdown` or `md` code block as a whole document.
+//! [`parse_with`](crate::parser::parse_with) reads with `(Markdown, E)`, which [`With`] names: a
+//! pair of extensions is one extension, and the first that claims a construct gets it, so a node
+//! `E` claims sits in `kind` as [`Either::Second`]. [`Plain`] claims nothing. `markdown_schema`
+//! is the module tixschema writes beside `Markdown`, as the [`ast`] page describes.
+//!
+//! This extension claims a code block whose language is `shout` as its text in capitals, and
+//! writes the block back as it was:
+//!
+//! ```rust
+//! use arky::parser::ast::{Block, RawDocument};
+//! use arky::parser::error::ParseError;
+//! use arky::parser::extension::{Construct, Context, Either, Extension, Written};
+//! use arky::parser::{ParseOptions, parse_with};
+//! use arky::writer::{WriteOptions, Writer, write};
+//!
+//! #[derive(Debug, Clone, PartialEq)]
+//! struct Shout;
+//!
+//! impl Extension for Shout {
+//!     type Node<T>
+//!         = String
+//!     where
+//!         T: Extension;
+//!
+//!     fn claim<T>(
+//!         construct: Construct<'_, T>,
+//!         _context: &Context<'_>,
+//!     ) -> Option<Result<String, ParseError>>
+//!     where
+//!         T: Extension,
+//!     {
+//!         let Construct::CodeBlock(block) = construct else {
+//!             return None;
+//!         };
+//!         (block.language.as_deref() == Some("shout")).then(|| Ok(block.value.to_uppercase()))
+//!     }
+//!
+//!     fn write<T>(_node: &Self::Node<T>, plain: Written<'_, T>, writer: &mut Writer)
+//!     where
+//!         T: Extension,
+//!     {
+//!         writer.construct(plain);
+//!     }
+//! }
+//!
+//! let source = "```shout\nhello\n```\n";
+//! let parsed = parse_with::<Shout>(source, &ParseOptions::default())?;
+//! let RawDocument::Valid(document) = &parsed.document else {
+//!     panic!("a file with no frontmatter is valid");
+//! };
+//! let Some(Block::CodeBlock(block)) = document.body.sections[0].blocks.first() else {
+//!     panic!("the file is one code block");
+//! };
+//! assert_eq!(block.value, "hello");
+//! assert_eq!(block.kind.0.as_deref(), Some(&Either::Second("HELLO".to_owned())));
+//! assert_eq!(write(&parsed.document, &WriteOptions::default())?, source);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! An extension that reads a claimed node's text points its errors at the source. This one
+//! claims a `task` block as the TOML it holds. [`Context::lines_of`] gives the parts of the
+//! block's lines past any list item's indentation,
+//! [`read_toml_lines`](crate::parser::read_toml_lines) reads them, and [`ParseError::new`]
+//! points an error at the block's [`span`](located::CodeBlock::span). Where the claim fails, a
+//! lenient parse keeps the plain code block, and a strict parse fails with the error.
+//! [`Context::markdown`] and [`Context::document`] read a claimed range as markdown, as
+//! [`Markdown`] reads a `markdown` block.
+//!
+//! ```rust
+//! use arky::parser::ast::{Block, Mapping, RawDocument, Value};
+//! use arky::parser::error::ParseError;
+//! use arky::parser::extension::{Construct, Context, Either, Extension, Written};
+//! use arky::parser::{ParseOptions, parse_with, read_toml_lines};
+//! use arky::writer::Writer;
+//!
+//! #[derive(Debug, Clone, PartialEq)]
+//! struct Task;
+//!
+//! impl Extension for Task {
+//!     type Node<T>
+//!         = Mapping
+//!     where
+//!         T: Extension;
+//!
+//!     fn claim<T>(
+//!         construct: Construct<'_, T>,
+//!         context: &Context<'_>,
+//!     ) -> Option<Result<Mapping, ParseError>>
+//!     where
+//!         T: Extension,
+//!     {
+//!         let Construct::CodeBlock(block) = construct else {
+//!             return None;
+//!         };
+//!         if block.language.as_deref() != Some("task") {
+//!             return None;
+//!         }
+//!         let lines = context.lines_of(block.content.clone());
+//!         let task = match read_toml_lines(context.source, &lines) {
+//!             Ok(task) => task,
+//!             Err(error) => return Some(Err(error)),
+//!         };
+//!         if task.contains_key("title") {
+//!             Some(Ok(task))
+//!         } else {
+//!             Some(Err(ParseError::new("a task needs a title", block.span.clone())))
+//!         }
+//!     }
+//!
+//!     fn write<T>(_node: &Self::Node<T>, plain: Written<'_, T>, writer: &mut Writer)
+//!     where
+//!         T: Extension,
+//!     {
+//!         writer.construct(plain);
+//!     }
+//! }
+//!
+//! let untitled = "```task\ndue = 2026-11-02\n```\n";
+//! let lenient = parse_with::<Task>(untitled, &ParseOptions::default())?;
+//! let RawDocument::Valid(document) = &lenient.document else {
+//!     panic!("a file with no frontmatter is valid");
+//! };
+//! let Some(Block::CodeBlock(block)) = document.body.sections[0].blocks.first() else {
+//!     panic!("the file is one code block");
+//! };
+//! assert!(block.kind.0.is_none());
+//!
+//! let strict = parse_with::<Task>(untitled, &ParseOptions::strict());
+//! let error = strict.expect_err("a strict parse fails on the extension's error");
+//! assert_eq!(error.to_string(), "a task needs a title (at byte 0)");
+//!
+//! let titled = "```task\ntitle = \"Buy flour\"\n```\n";
+//! let parsed = parse_with::<Task>(titled, &ParseOptions::default())?;
+//! let RawDocument::Valid(document) = &parsed.document else {
+//!     panic!("a file with no frontmatter is valid");
+//! };
+//! let Some(Block::CodeBlock(block)) = document.body.sections[0].blocks.first() else {
+//!     panic!("the file is one code block");
+//! };
+//! let Some(Either::Second(task)) = block.kind.0.as_deref() else {
+//!     panic!("the task extension claims the block");
+//! };
+//! assert_eq!(task.get("title"), Some(&Value::String("Buy flour".to_owned())));
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 use core::convert::Infallible;
 use core::fmt::Debug;
@@ -17,6 +171,8 @@ use crate::writer::Writer;
 
 /// A consumer's node types. arky builds every node first, children before
 /// parents, and then offers it to the extension.
+///
+/// The [`extension`](crate::parser::extension) module page shows one in full.
 pub trait Extension: Clone + Debug + PartialEq + Sized {
     /// The node an extension builds. `T` is the full set of extensions, so a
     /// node can hold arky nodes typed with it.
@@ -24,10 +180,11 @@ pub trait Extension: Clone + Debug + PartialEq + Sized {
     where
         T: Extension;
 
-    /// `None` leaves the construct to arky. `Some(Err(..))` falls back to
-    /// the plain node, or fails a strict parse. No construct that
-    /// `BLOCK_CAP` or more list items, markdown blocks and table cells hold
-    /// is offered: it stays the node arky built.
+    /// Claims `construct`, a node of the located tree, spans included, or leaves it.
+    ///
+    /// `None` leaves the construct to arky, and `Some(Ok(..))` claims it. `Some(Err(..))` falls
+    /// back to the plain node, or fails a strict parse. No construct that 40 or more list items,
+    /// markdown blocks and table cells hold is offered: it stays the node arky built.
     fn claim<T>(
         construct: Construct<'_, T>,
         context: &Context<'_>,
@@ -35,7 +192,8 @@ pub trait Extension: Clone + Debug + PartialEq + Sized {
     where
         T: Extension;
 
-    /// Writes a claimed node back. `plain` is the node arky built under it.
+    /// Writes a claimed node back. `plain` is the node arky built under it, and
+    /// [`Writer::construct`] writes that plain node in arky's form.
     fn write<T>(node: &Self::Node<T>, plain: Written<'_, T>, writer: &mut Writer)
     where
         T: Extension;
@@ -43,68 +201,119 @@ pub trait Extension: Clone + Debug + PartialEq + Sized {
 
 /// A located node arky offers to the extensions while it parses, typed
 /// with the full set `T`.
+///
+/// Each variant holds the node of the same name in [`located`], whose spans count from the start
+/// of the source.
 #[derive(Clone)]
 #[non_exhaustive]
 pub enum Construct<'node, T>
 where
     T: Extension,
 {
+    /// A block quote.
     BlockQuote(&'node located::BlockQuote<T>),
+    /// A code span.
     Code(&'node located::Code<T>),
+    /// A fenced or indented code block.
     CodeBlock(&'node located::CodeBlock<T>),
+    /// The whole file.
     Document(&'node located::Document<T>),
+    /// An emphasis, also one inside a link's text.
     Emphasis(&'node located::Emphasis<T>),
+    /// A heading line.
     Heading(&'node located::Heading<T>),
+    /// Raw HTML, a block or inline.
     Html(&'node located::Html<T>),
+    /// An image embed.
     Image(&'node located::Image<T>),
+    /// A list item.
     Item(&'node located::Item<T>),
+    /// A line of a paragraph.
     Line(&'node located::Line<T>),
+    /// A hard line break.
     LineBreak(&'node located::LineBreak<T>),
+    /// A link.
     Link(&'node located::Link<T>),
+    /// A list.
     List(&'node located::List<T>),
+    /// A markdown block: the body, an item's, a cell's or a `markdown` code block's.
     MarkdownBlock(&'node located::MarkdownBlock<T>),
+    /// A paragraph.
     Paragraph(&'node located::Paragraph<T>),
+    /// A section.
     Section(&'node located::Section<T>),
+    /// A strong emphasis, also one inside a link's text.
     Strong(&'node located::Strong<T>),
+    /// A table.
     Table(&'node located::Table<T>),
+    /// A table cell.
     TableCell(&'node located::TableCell<T>),
+    /// A table row.
     TableRow(&'node located::TableRow<T>),
+    /// Plain text.
     Text(&'node located::Text<T>),
+    /// A thematic break.
     ThematicBreak(&'node located::ThematicBreak<T>),
 }
 
 /// A model node a claimed node is written over: the plain node under it.
 /// An emphasis or a strong claimed inside a link's text comes back as
 /// `LinkEmphasis` or `LinkStrong`.
+///
+/// Each variant holds the node of the same name in [`ast`].
 #[derive(Clone)]
 #[non_exhaustive]
 pub enum Written<'node, T>
 where
     T: Extension,
 {
+    /// A block quote.
     BlockQuote(&'node ast::BlockQuote<T>),
+    /// A code span.
     Code(&'node ast::Code<T>),
+    /// A code block.
     CodeBlock(&'node ast::CodeBlock<T>),
+    /// The whole file.
     Document(&'node Document<T>),
+    /// An emphasis.
     Emphasis(&'node ast::Emphasis<T>),
+    /// A heading line.
     Heading(&'node ast::Heading<T>),
+    /// Raw HTML, a block or inline.
     Html(&'node ast::Html<T>),
+    /// An image embed.
     Image(&'node ast::Image<T>),
+    /// A list item.
     Item(&'node ast::Item<T>),
+    /// A line of a paragraph.
     Line(&'node ast::Line<T>),
+    /// A hard line break.
     LineBreak(&'node ast::LineBreak<T>),
+    /// A link.
     Link(&'node ast::Link<T>),
+    /// An emphasis inside a link's text.
     LinkEmphasis(&'node ast::LinkEmphasis<T>),
+    /// A strong emphasis inside a link's text.
     LinkStrong(&'node ast::LinkStrong<T>),
+    /// A list.
     List(&'node ast::List<T>),
+    /// A markdown block.
     MarkdownBlock(&'node MarkdownBlock<T>),
+    /// A paragraph.
     Paragraph(&'node ast::Paragraph<T>),
+    /// A section.
     Section(&'node ast::Section<T>),
+    /// A strong emphasis.
     Strong(&'node ast::Strong<T>),
+    /// A table.
     Table(&'node ast::Table<T>),
+    /// A table cell.
     TableCell(&'node ast::TableCell<T>),
+    /// A table row.
     TableRow(&'node ast::TableRow<T>),
+    /// Plain text.
     Text(&'node ast::Text<T>),
+    /// A thematic break.
     ThematicBreak(&'node ast::ThematicBreak<T>),
 }
 
@@ -119,14 +328,17 @@ pub struct Context<'text> {
     /// markdown block that holds it.
     pub column: usize,
     /// How many list items, markdown blocks and table cells hold the offered
-    /// construct. No construct that `BLOCK_CAP` or more of them hold is
-    /// offered.
+    /// construct. No construct that 40 or more of them hold is offered.
     pub depth: usize,
+    /// The column each markdown block around the construct reads its lines past. Only arky
+    /// reads it.
     pub frame: Frame<'text>,
     /// The lines of the grid cell the offered construct lies in, as ranges
     /// of the source, or `None` outside grid cells.
     pub lines: Option<&'text [Range<usize>]>,
+    /// The whole text being parsed, which every span indexes.
     pub source: &'text str,
+    /// Whether the parse is strict, so that an error fails it.
     pub strict: bool,
 }
 
@@ -324,6 +536,8 @@ impl Context<'_> {
 /// The column each markdown block that holds a construct reads its lines
 /// past, outermost first, from the start of the line or, in a grid cell, of
 /// its cell's line. Only arky reads it.
+///
+/// It has no public constructor: an extension finds it in [`Context::frame`].
 #[derive(Debug, Clone, Copy)]
 pub struct Frame<'text>(&'text [usize]);
 
@@ -344,7 +558,8 @@ struct Framed {
     text: Range<usize>,
 }
 
-/// An extension that claims nothing.
+/// An extension that claims nothing: [`parse_with`](crate::parser::parse_with) with `Plain`
+/// parses as [`parse`](crate::parser::parse) does, its tree typed with `(Markdown, Plain)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Plain;
@@ -376,6 +591,9 @@ impl Extension for Plain {
 /// arky's own extension: a fenced block whose language is the word
 /// `markdown` or `md`, in any case, holds a whole document, its frontmatter
 /// included.
+///
+/// Its node is the `RawDocument` the block's lines read as, and it writes that document back
+/// inside a fence with the block's info string.
 #[model_schema()]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -416,11 +634,14 @@ impl Extension for Markdown {
     }
 }
 
-/// Two extensions together. The first one that claims a construct gets it.
+/// The node of a pair of extensions, `(A, B)`, which is itself an extension. The first one that
+/// claims a construct gets it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Either<A, B> {
+    /// A node of the first extension.
     First(A),
+    /// A node of the second extension.
     Second(B),
 }
 

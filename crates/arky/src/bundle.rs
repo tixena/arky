@@ -1,4 +1,47 @@
 //! A markdown document with every file it embeds, as one unit, and its forms on disk.
+//!
+//! A [`BundledDocument`] holds a document and the file of each image embed in it,
+//! `![alt](path)` or `![[name]]`, by its path from the document's folder. An embedded note's own
+//! embeds come with it. Links do not travel, nor do embeds inside code blocks; embeds inside
+//! block quotes do. A `![[name]]` with no extension names `name.md`. [`images_mut`] changes
+//! every image target, a block quote's included, as when a note's pictures move into `media/`.
+//!
+//! [`BundledDocument::from_file`] and [`BundledDocument::to_file`] read and write a bundle
+//! through an os-shim [`System`]: the real disk, or the in-memory `MemorySystem`.
+//! [`BundledDocument::from_zip`] and [`BundledDocument::to_zip`] read and write a zip of
+//! `index.md` and the files. [`BundledDocument::embedded`] gives the tree with each file inside
+//! its embed as a data URI, which [`BundledDocument::new`] turns back into files. The
+//! [`forms`](crate::forms) module puts a bundle into each of arky's forms. [`embeds`],
+//! [`embedded_paths`] and [`path_of`] say what a document embeds and where each file is, and
+//! [`media_type`] gives the media type a data URI names a file with.
+//!
+//! ```rust
+//! use std::path::Path;
+//!
+//! use arky::bundle::{BundledDocument, Missing};
+//! use arky::writer::WriteOptions;
+//! use os_shim::System as _;
+//! use os_shim::mock::MemorySystem;
+//!
+//! let report = b"# Report\n\n![Logo](media/logo.gif)\n\n[spec](spec.pdf)\n";
+//! let notes = MemorySystem::new()
+//!     .with_file("/notes/report.md", report)?
+//!     .with_file("/notes/media/logo.gif", b"GIF89a")?
+//!     .with_file("/notes/spec.pdf", b"%PDF")?;
+//! let path = Path::new("/notes/report.md");
+//! let bundle = BundledDocument::from_file(&notes, path, Missing::Refuse)?;
+//! assert_eq!(bundle.files(), ["media/logo.gif"]);
+//!
+//! let mut zip = Vec::new();
+//! bundle.to_zip(&mut zip, &WriteOptions::default())?;
+//! let back = BundledDocument::from_zip(&mut zip.as_slice(), Missing::Refuse)?;
+//! assert_eq!(back, bundle);
+//!
+//! let copy = MemorySystem::new();
+//! back.to_file(&copy, Path::new("/copy/report.md"), &WriteOptions::default())?;
+//! assert_eq!(copy.read_to_string(Path::new("/copy/media/logo.gif"))?, "GIF89a");
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 use alloc::collections::BTreeMap;
 use core::fmt::{self, Write as _};
@@ -24,6 +67,9 @@ use crate::writer::{self, WriteError, WriteOptions};
 
 /// A markdown document and every file it embeds, an embedded note's own embeds included,
 /// each at its path from the document's folder.
+///
+/// Every way of making one goes through [`BundledDocument::new`], so a bundle holds no file its
+/// document does not embed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BundledDocument {
     document: RawDocument,
@@ -34,26 +80,37 @@ pub struct BundledDocument {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum BundledDocumentError {
+    /// An embed's target, `target`, leaves the document's folder, as `../logo.png` does.
     #[error("index.md names {target}, which leaves the bundle's folder")]
     Escapes { target: String },
+    /// A file or a zip did not read or write.
     #[error(transparent)]
     Io(#[from] io::Error),
+    /// The bundle holds no file for the embed of `target`, or `target` names no file a bundle
+    /// can hold.
     #[error("index.md names {target}, and the bundle does not hold it")]
     Missing { target: String },
+    /// A zip holds no `index.md`, at its root or in its one top folder.
     #[error("the bundle holds no index.md")]
     NoIndex,
+    /// The base64 of the data URI `target` does not decode.
     #[error("index.md names {target}, whose base64 does not decode")]
     NotBase64 {
         target: String,
         #[source]
         source: base64::DecodeError,
     },
+    /// The data URI `target` has no comma before its data.
     #[error("index.md names {target}, a data URI with no comma before its data")]
     NotDataUri { target: String },
+    /// A file given to [`BundledDocument::new`] is named `name`, which is not a path inside the
+    /// bundle: it is absolute, holds an empty, `.` or `..` part or a `\`, or is `index.md`.
     #[error("{name} is not a path inside the bundle")]
     NotRelative { name: String },
+    /// The markdown file at `path` is not UTF-8 from byte `offset`.
     #[error("{path} is not UTF-8 at byte {offset}")]
     NotUtf8 { path: String, offset: usize },
+    /// A tree whose embeds changed did not write.
     #[error(transparent)]
     Write(#[from] WriteError),
 }
@@ -75,7 +132,9 @@ pub enum Missing {
 pub struct Embed {
     /// The text in brackets, or the wiki alias; empty when none.
     pub alt: String,
+    /// How the embed is written: `![alt](target)` or `![[target|alt]]`.
     pub form: LinkForm,
+    /// The target as written, escapes and references resolved.
     pub target: String,
 }
 
@@ -169,6 +228,7 @@ impl BundledDocument {
     /// The document's file in a zip.
     pub const INDEX: &'static str = "index.md";
 
+    /// The document. Each embed's target names its file's path, never a data URI.
     #[must_use]
     pub const fn document(&self) -> &RawDocument {
         &self.document
@@ -182,6 +242,25 @@ impl BundledDocument {
     ///
     /// The writer's error for a block quote or an embedded note whose changed tree does not
     /// write.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::collections::BTreeMap;
+    ///
+    /// use arky::bundle::{BundledDocument, Missing};
+    /// use arky::parser::parse;
+    /// use arky::writer::{WriteOptions, write};
+    ///
+    /// let document = parse("# Recipe\n\n![Loaf](images/loaf.gif)\n").document;
+    /// let files = BTreeMap::from([("images/loaf.gif".to_owned(), b"GIF89a".to_vec())]);
+    /// let bundle = BundledDocument::new(document, files, Missing::Refuse)?;
+    /// assert_eq!(
+    ///     write(&bundle.embedded()?, &WriteOptions::default())?,
+    ///     "# Recipe\n\n![Loaf](data:image/gif;name=images/loaf.gif;base64,R0lGODlh)\n",
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn embedded(&self) -> Result<RawDocument, BundledDocumentError> {
         let mut root = self.note(String::new(), self.document.clone(), &[])?;
         let mut stack: Vec<Note> = Vec::new();
@@ -250,9 +329,12 @@ impl BundledDocument {
     /// The markdown file at `path` in `system`, and every file it embeds, read from the file's
     /// folder.
     ///
+    /// With os-shim's `MemorySystem`, give an absolute path: it finds a file only by the path it
+    /// was stored at.
+    ///
     /// # Errors
     ///
-    /// A file that does not read or is not UTF-8, and the errors of `new`.
+    /// A file that does not read or is not UTF-8, and the errors of [`BundledDocument::new`].
     pub fn from_file<S>(
         system: &S,
         path: &Path,
@@ -288,7 +370,7 @@ impl BundledDocument {
     /// # Errors
     ///
     /// `NoIndex` when neither the zip's root nor its one top folder holds `index.md`, a zip that
-    /// does not read, and the errors of `from_file`.
+    /// does not read, and the errors of [`BundledDocument::from_file`].
     pub fn from_zip(source: &mut dyn Read, missing: Missing) -> Result<Self, BundledDocumentError> {
         let mut buffer = Vec::new();
         source.read_to_end(&mut buffer)?;
@@ -313,6 +395,10 @@ impl BundledDocument {
     /// `document` and the files of `files` it embeds, an embedded note's own embeds included.
     /// Every embed written as a data URI becomes a file first.
     ///
+    /// A file no embed names is left out. A data URI's file goes at the path its `name` gives,
+    /// or else at `media/` and 16 hex digits of its SHA-256, and the embed's target becomes that
+    /// path. `missing` decides an embed whose file is not in `files`.
+    ///
     /// # Errors
     ///
     /// `NotRelative` for a name of `files` that is not a path inside the bundle, `NotDataUri` for
@@ -321,6 +407,27 @@ impl BundledDocument {
     /// `files` does not hold when `missing` is `Missing::Refuse`, `NotUtf8` for an embedded note,
     /// and the writer's error for a block quote or a note whose data URIs became files and whose
     /// tree does not write.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::collections::BTreeMap;
+    ///
+    /// use arky::bundle::{BundledDocument, Missing};
+    /// use arky::parser::parse;
+    ///
+    /// let document = parse("![Logo](data:image/png;base64,iVBORw0KGgo=)\n").document;
+    /// let bundle = BundledDocument::new(document, BTreeMap::new(), Missing::Refuse)?;
+    /// assert_eq!(bundle.files(), ["media/4c4b6a3be1314ab8.png"]);
+    /// let png = bundle.file("media/4c4b6a3be1314ab8.png");
+    /// assert_eq!(png, Some(b"\x89PNG\r\n\x1a\n".as_slice()));
+    ///
+    /// let text = parse("![Logo](media/logo.png)\n").document;
+    /// assert!(BundledDocument::new(text.clone(), BTreeMap::new(), Missing::Refuse).is_err());
+    /// let kept = BundledDocument::new(text.clone(), BTreeMap::new(), Missing::Keep)?;
+    /// assert_eq!(kept.document(), &text);
+    /// # Ok::<(), arky::bundle::BundledDocumentError>(())
+    /// ```
     pub fn new(
         mut document: RawDocument,
         mut files: BTreeMap<String, Vec<u8>>,
@@ -499,6 +606,17 @@ impl Resolved {
 ///
 /// `Escapes` for a path that leaves the folder, and `Missing` for one that is not UTF-8 once
 /// percent-decoded.
+///
+/// # Examples
+///
+/// ```rust
+/// use arky::bundle::path_of;
+///
+/// assert_eq!(path_of("./media/my%20logo.png?v=2")?.as_deref(), Some("media/my logo.png"));
+/// assert_eq!(path_of("https://example.com/logo.png")?, None);
+/// assert!(path_of("../logo.png").is_err());
+/// # Ok::<(), arky::bundle::BundledDocumentError>(())
+/// ```
 pub fn path_of(target: &str) -> Result<Option<String>, BundledDocumentError> {
     let embed = Embed {
         alt: String::new(),
@@ -516,6 +634,23 @@ pub fn path_of(target: &str) -> Result<Option<String>, BundledDocumentError> {
 
 /// Each embed of `document`, `![alt](target)` and `![[target]]`, a block quote's included, in
 /// document order.
+///
+/// Embeds inside code blocks are left out.
+///
+/// # Examples
+///
+/// ```rust
+/// use arky::bundle::embeds;
+/// use arky::parser::ast::LinkForm;
+/// use arky::parser::parse;
+///
+/// let source = "![Picture](logo.png)\n\n> quoted ![[chart|Chart]]\n\n```\n![c](code.png)\n```\n";
+/// let found = embeds(&parse(source).document);
+/// let targets: Vec<&str> = found.iter().map(|embed| embed.target.as_str()).collect();
+/// assert_eq!(targets, ["logo.png", "chart"]);
+/// assert_eq!(found[1].form, LinkForm::Wiki);
+/// assert_eq!(found[1].alt, "Chart");
+/// ```
 #[must_use]
 pub fn embeds(document: &RawDocument) -> Vec<Embed> {
     let mut embeds = Vec::new();
@@ -537,6 +672,22 @@ pub fn embeds(document: &RawDocument) -> Vec<Embed> {
 /// # Errors
 ///
 /// The writer's error for a block quote whose changed tree does not write.
+///
+/// # Examples
+///
+/// ```rust
+/// use arky::bundle::images_mut;
+/// use arky::parser::parse;
+/// use arky::writer::{WriteOptions, write};
+///
+/// let mut document = parse("![Logo](logo.png)\n\n> ![Chart](chart.png)\n").document;
+/// images_mut(&mut document, &mut |image| image.target.insert_str(0, "media/"))?;
+/// assert_eq!(
+///     write(&document, &WriteOptions::default())?,
+///     "![Logo](media/logo.png)\n\n> ![Chart](media/chart.png)\n",
+/// );
+/// # Ok::<(), arky::writer::WriteError>(())
+/// ```
 pub fn images_mut(
     document: &mut RawDocument,
     visit: &mut dyn FnMut(&mut Image),
@@ -573,6 +724,19 @@ pub fn images_mut(
 /// # Errors
 ///
 /// None: each target names a path in the bundle or is left out.
+///
+/// # Examples
+///
+/// ```rust
+/// use arky::bundle::embedded_paths;
+/// use arky::parser::parse;
+///
+/// let note = parse("![chart](../media/chart.png)\n\n![[sub/note#Heading]]\n").document;
+/// let paths: Vec<String> =
+///     embedded_paths(&note, "parts")?.into_iter().map(|(_, path)| path).collect();
+/// assert_eq!(paths, ["media/chart.png", "parts/sub/note.md"]);
+/// # Ok::<(), arky::bundle::BundledDocumentError>(())
+/// ```
 pub fn embedded_paths(
     document: &RawDocument,
     folder: &str,
@@ -589,6 +753,14 @@ pub fn embedded_paths(
 }
 
 /// The media type a data URI gives the file at `path`, by its extension.
+///
+/// ```rust
+/// use arky::bundle::media_type;
+///
+/// assert_eq!(media_type("media/logo.PNG"), "image/png");
+/// assert_eq!(media_type("notes/plan.md"), "text/markdown");
+/// assert_eq!(media_type("spec.pdf"), "application/octet-stream");
+/// ```
 #[must_use]
 pub fn media_type(path: &str) -> &'static str {
     let extension = Path::new(path)

@@ -1,5 +1,35 @@
 //! A document tree written back to markdown, in arky's own form: one
 //! written form for each construct, whatever form the file used.
+//!
+//! [`write()`] writes a tree, parsed or built, with the [`WriteOptions`] that pick the
+//! frontmatter's syntax. A [`Writer`] is what an extension writes its own nodes with. The
+//! written text is not the bytes that were read: headings get `#` marks, bullets `-`, emphasis
+//! `*`, and so on, except where that form would read back as something else. A text written once is written the same way again, so files kept in arky's
+//! form do not change from one save to the next.
+//!
+//! ```rust
+//! use arky::parser::parse;
+//! use arky::writer::{WriteOptions, write};
+//!
+//! let source = concat!(
+//!     "Notes\n=====\n\nSome __bold__ and _em_ text.\n\n",
+//!     "* one\n*   two\n    continued\n\n~~~python\nprint(1)\n~~~\n\n___\n",
+//! );
+//! let options = WriteOptions::default();
+//! let text = write(&parse(source).document, &options)?;
+//! assert_eq!(
+//!     text,
+//!     concat!(
+//!         "# Notes\n\nSome **bold** and *em* text.\n\n",
+//!         "- one\n- two\n  continued\n\n```python\nprint(1)\n```\n\n***\n",
+//!     ),
+//! );
+//! assert_eq!(write(&parse(&text).document, &options)?, text);
+//! # Ok::<(), arky::writer::WriteError>(())
+//! ```
+//!
+//! [`GRAMMAR.md`](https://github.com/tixena/arky/blob/master/crates/arky/GRAMMAR.md#writing)
+//! lists the form each construct is written in.
 
 #[cfg(feature = "binary-format")]
 mod archived;
@@ -99,25 +129,46 @@ impl Place {
     }
 }
 
-/// Why a document could not be written: the frontmatter or TOML args key whose value the
-/// syntax or chrono cannot hold, empty when an invalid frontmatter's text holds a closing line.
+/// Why a document could not be written: a value its syntax cannot hold, such as a null in TOML,
+/// or an invalid frontmatter whose text holds a line that would close it.
+///
+/// It displays as its message.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{message}")]
 #[non_exhaustive]
 pub struct WriteError {
+    /// The path of the frontmatter or `Toml` args key whose value cannot be written, such as
+    /// `owner.email`, or empty for an invalid frontmatter's closing line.
     pub key: String,
+    /// What cannot be written, such as `TOML cannot hold a null`.
     pub message: String,
 }
 
 /// How a document is written.
+///
+/// The struct is `#[non_exhaustive]`: start from `WriteOptions::default()`, then set its field.
+///
+/// ```rust
+/// use arky::parser::ast::FrontmatterFormat;
+/// use arky::writer::WriteOptions;
+///
+/// let mut options = WriteOptions::default();
+/// options.frontmatter = FrontmatterFormat::Toml;
+/// ```
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct WriteOptions {
-    /// The syntax the frontmatter is written in.
+    /// The syntax a valid document's frontmatter is written in, YAML by default, whatever syntax
+    /// the file was read in.
+    ///
+    /// A frontmatter no entry of reads is written back as it was read, in its own syntax.
     pub frontmatter: FrontmatterFormat,
 }
 
 /// Builds the markdown text. Extensions write their nodes through it.
+///
+/// It has no public constructor: [`write()`] makes one and hands it to
+/// [`Extension::write`] for each node an extension claimed.
 pub struct Writer {
     /// What is written before this writer's text in its block.
     after_text: Before,
@@ -858,12 +909,41 @@ where
 /// the syntax `options` picks, or as it was read when no entry of it reads,
 /// then its body.
 ///
+/// A node an extension claimed is written by that extension.
+///
 /// # Errors
 ///
 /// Returns an error naming the key when TOML is picked and the frontmatter
 /// holds a null, which TOML cannot hold, or when the `Toml` args of a code
 /// block hold one, and an error naming the line when the text of an invalid
 /// frontmatter holds one that would close it.
+///
+/// # Examples
+///
+/// ```rust
+/// use arky::parser::ast::FrontmatterFormat;
+/// use arky::parser::parse;
+/// use arky::writer::{WriteOptions, write};
+///
+/// let document = parse("+++\ntitle = \"Notes\"\ndue = 2026-10-10\n+++\n# Notes\n").document;
+/// assert_eq!(
+///     write(&document, &WriteOptions::default())?,
+///     "---\ntitle: Notes\ndue: !!timestamp 2026-10-10\n---\n# Notes\n",
+/// );
+///
+/// let mut toml = WriteOptions::default();
+/// toml.frontmatter = FrontmatterFormat::Toml;
+/// assert_eq!(
+///     write(&document, &toml)?,
+///     "+++\ntitle = \"Notes\"\ndue = 2026-10-10\n+++\n# Notes\n",
+/// );
+///
+/// let null = parse("---\nowner:\n  name: Ada\n  email: null\n---\n").document;
+/// let error = write(&null, &toml).expect_err("TOML has no null");
+/// assert_eq!(error.key, "owner.email");
+/// assert_eq!(error.to_string(), "TOML cannot hold a null");
+/// # Ok::<(), arky::writer::WriteError>(())
+/// ```
 pub fn write<E>(document: &RawDocument<E>, options: &WriteOptions) -> Result<String, WriteError>
 where
     E: Extension,
@@ -876,8 +956,16 @@ where
     writer.error.take().map_or(Ok(writer.out), Err)
 }
 
-/// Writes the archived `document` in place, as `write` writes the same tree:
-/// its frontmatter in the syntax `options` names, YAML by default.
+/// Code outside arky writes the binary form's text through
+/// [`forms::stored`](crate::forms::stored), which calls this function.
+///
+/// It writes the archived `document` in place, as [`write()`] writes the same tree: a valid
+/// document's frontmatter in the syntax `options` names, YAML by default, and a frontmatter no
+/// entry of reads as it was read.
+///
+/// It exists with the `binary-format` feature. An archived tree holds no extension node, so each
+/// node is written in its plain form. Code outside arky has no way to reach an
+/// `ArchivedRawDocument` to pass here.
 ///
 /// # Errors
 ///
