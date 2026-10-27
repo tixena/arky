@@ -24,8 +24,8 @@ minio = ["arky-store/minio"]
 mongodb = ["arky-store/mongodb"]
 
 [dependencies]
-arky = { path = "../arky" }
-arky-store = { path = "../arky-store" }
+arky.workspace = true
+arky-store.workspace = true
 clap.workspace = true
 os-shim.workspace = true
 tokio = { workspace = true, features = ["rt"] }

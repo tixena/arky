@@ -11,6 +11,10 @@ repository = "https://github.com/tixena/arky"
 license = "MIT"
 
 [workspace.dependencies]
+# The workspace's own crates: the folder here, the version on crates.io
+arky = { version = "0.1.0", path = "crates/arky" }
+arky-store = { version = "0.1.0", path = "crates/arky-store" }
+
 # Error handling
 thiserror = "2"
 
