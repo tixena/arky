@@ -1,5 +1,13 @@
 //! A document over any store: stored in arky's form, with each file it
 //! embeds beside it.
+//!
+//! [`get`] reads a document and every file it embeds into an
+//! [`arky::bundle::BundledDocument`]. [`put`] stores a document given as bytes
+//! in any [`arky::forms::Form`], and [`put_bundle`] stores a bundle. A file
+//! sits at its path from the document's folder: the `media/logo.png` that
+//! `notes/report.md` embeds is kept at `notes/media/logo.png`. Only image
+//! embeds travel, written `![alt](path)` or `![[name]]`, an embedded note's
+//! own embeds included.
 
 use alloc::collections::BTreeMap;
 use core::str::from_utf8;
@@ -13,11 +21,15 @@ use arky::writer::{self, WriteOptions};
 
 use crate::{Precondition, Revision, Store, StoreError, StorePath};
 
+/// Why [`get`], [`put`] or [`put_bundle`] failed.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum DocumentError {
+    /// The document at `path`, or a note it embeds, does not read or write in
+    /// its form, for the reason `error` gives: `notes/a.md: not UTF-8 at byte 1`.
     #[error("{path}: {error}")]
     Form { path: StorePath, error: FormError },
+    /// The store refused or failed.
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -37,11 +49,15 @@ impl DocumentError {
 /// The document at `path` and every file it embeds, an embedded note's own
 /// embeds included, read beside it.
 ///
-/// `missing` decides an embed whose file the store does not hold.
+/// `missing` decides an embed whose file the store does not hold. An embed
+/// whose path beside the document is not a store path names no file.
 ///
 /// # Errors
 ///
-/// The store's error, or the bundle's naming the path.
+/// `DocumentError::Store` when no document is at `path` or the store fails.
+/// `DocumentError::Form` naming `path` when the document or a note it embeds
+/// is not UTF-8, or when an embed has no file and `missing` is
+/// `Missing::Refuse`.
 pub async fn get<S>(
     store: &S,
     path: &StorePath,
@@ -91,9 +107,86 @@ where
 /// `precondition` applies to the document only, and `missing` decides an
 /// embed with no file.
 ///
+/// The store keeps arky's form, not the bytes given: `* item` is kept as
+/// `- item`, a valid frontmatter in the syntax `options` names, and each data
+/// URI as a file beside the document. Here a post and its picture arrive as a
+/// zip:
+///
+/// ```rust
+/// use std::collections::BTreeMap;
+/// use std::path::PathBuf;
+///
+/// use arky::bundle::{BundledDocument, Missing};
+/// use arky::forms::{Form, encode};
+/// use arky::parser::parse;
+/// use arky::writer::WriteOptions;
+/// use arky_store::file::FileStore;
+/// use arky_store::{Precondition, Store as _, StorePath, document};
+/// use os_shim::mock::MemorySystem;
+///
+/// #[tokio::main(flavor = "current_thread")]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let system = MemorySystem::new();
+///     let store = FileStore::new(PathBuf::from("/blog"), &system);
+///     let path = StorePath::new("posts/bread.md")?;
+///     let options = WriteOptions::default();
+///
+///     let text = "# Bread\n\n![The loaf](media/loaf.png)\n";
+///     let files = BTreeMap::from([("media/loaf.png".to_owned(), b"not a real picture".to_vec())]);
+///     let bundle = BundledDocument::new(parse(text).document, files, Missing::Refuse)?;
+///     let zip = encode(&bundle, Form::Zip, &options)?;
+///
+///     document::put(&store, &path, Form::Zip, &zip, &options, &Precondition::Absent, Missing::Refuse)
+///         .await?;
+///     assert_eq!(store.read(&path).await?.bytes, text.as_bytes());
+///     let picture = StorePath::new("posts/media/loaf.png")?;
+///     assert_eq!(store.read(&picture).await?.bytes, b"not a real picture");
+///     Ok(())
+/// }
+/// ```
+///
+#[cfg_attr(
+    feature = "binary-format",
+    doc = r#"With the `binary-format` feature, `form` may be `Form::Binary`, and the
+document's tree is read from the archive in place:
+
+```rust
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use arky::bundle::{BundledDocument, Missing};
+use arky::forms::{Form, encode};
+use arky::parser::parse;
+use arky::writer::WriteOptions;
+use arky_store::file::FileStore;
+use arky_store::{Precondition, Store as _, StorePath, document};
+use os_shim::mock::MemorySystem;
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let system = MemorySystem::new();
+    let store = FileStore::new(PathBuf::from("/notes"), &system);
+    let path = StorePath::new("todo.md")?;
+    let options = WriteOptions::default();
+
+    let bundle = BundledDocument::new(parse("* item\n").document, BTreeMap::new(), Missing::Refuse)?;
+    let binary = encode(&bundle, Form::Binary, &options)?;
+    document::put(&store, &path, Form::Binary, &binary, &options, &Precondition::None, Missing::Refuse)
+        .await?;
+    assert_eq!(store.read(&path).await?.bytes, b"- item\n");
+    Ok(())
+}
+```
+"#
+)]
+///
 /// # Errors
 ///
-/// The form's error naming the path, or the store's.
+/// `DocumentError::Form` naming `path` when `bytes` do not hold a document in
+/// `form`, or when an embed has no file and `missing` is `Missing::Refuse`.
+/// `DocumentError::Store` when the store refuses or fails: `Conflict` when
+/// `precondition` does not hold, `InvalidPath` for a file whose path beside
+/// the document is not a store path.
 pub async fn put<S>(
     store: &S,
     path: &StorePath,
@@ -115,14 +208,18 @@ where
 }
 
 /// Stores at `path` the document of `bundle`, its frontmatter in the syntax
-/// `options` names, and each file of `bundle` beside it, and gives the
-/// document's new revision.
+/// `options` names when it is valid, and each file of `bundle` beside it, and
+/// gives the document's new revision.
 ///
 /// `precondition` applies to the document only.
 ///
 /// # Errors
 ///
-/// The writer's error naming the path, or the store's.
+/// `DocumentError::Form` naming `path` when the document does not write in
+/// the syntax `options` names, such as a null value in TOML.
+/// `DocumentError::Store` when the store refuses or fails: `Conflict` when
+/// `precondition` does not hold, `InvalidPath` for a file whose path beside
+/// the document is not a store path.
 pub async fn put_bundle<S>(
     store: &S,
     path: &StorePath,

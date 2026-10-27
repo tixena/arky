@@ -1,7 +1,127 @@
-//! The document tree a markdown file parses into.
+//! The document tree a markdown file parses into, and the frontmatter values it holds.
 //!
-//! Every node carries `kind`, the type an extension gave it, and none holds
-//! a span: a parse reports positions beside the document.
+//! A [`RawDocument`] is [`Valid`](RawDocument::Valid), a [`Document`], or
+//! [`Invalid`](RawDocument::Invalid), an [`InvalidDocument`] whose frontmatter no entry of reads.
+//! A document's body is a [`MarkdownBlock`]: its [`Section`]s, each a [`Heading`], the
+//! [`Block`]s under it, then its subsections. A heading's level is not stored: it is the depth of
+//! its section, counted from one in each markdown block. A [`Paragraph`] holds [`Line`]s of
+//! [`Inline`] nodes. The frontmatter is a [`Mapping`] of [`Value`]s.
+//!
+//! Every field is public, and each node has a `new` function, or `default()` for
+//! [`ThematicBreak`] and [`LineBreak`], so code can change a parsed tree or build one. Most types
+//! are `#[non_exhaustive]`: build them with those functions, and give each `match` on an enum a
+//! wildcard arm. A tree built by hand equals the tree its markdown parses into:
+//!
+//! ```rust
+//! use arky::parser::ast::{
+//!     Block, Document, Heading, Inline, Line, MarkdownBlock, Paragraph, RawDocument, Section,
+//!     Text,
+//! };
+//! use arky::parser::parse;
+//! use arky::writer::{WriteOptions, write};
+//!
+//! fn text(value: &str) -> Inline {
+//!     Inline::Text(Text::new(value.to_owned()))
+//! }
+//!
+//! let line = Line::new(vec![text("Mix, rest and bake.")]);
+//! let section = Section::new(
+//!     Some(Heading::new(vec![text("Bread")])),
+//!     vec![Block::Paragraph(Paragraph::new(vec![line]))],
+//!     Vec::new(),
+//! );
+//! let built = RawDocument::Valid(Document::new(MarkdownBlock::new(vec![section]), None));
+//!
+//! let source = "# Bread\n\nMix, rest and bake.\n";
+//! assert_eq!(write(&built, &WriteOptions::default())?, source);
+//! assert_eq!(parse(source).document, built);
+//! # Ok::<(), arky::writer::WriteError>(())
+//! ```
+//!
+//! Each node of the markdown tree also has a `kind` field, a [`Kind`]: the node an
+//! [`Extension`] gave it, or `None`. JSON, the binary form and the stores keep no `kind`. No node
+//! holds a span: an extension reads spans in the [located tree](crate::parser::located), and a
+//! parse gives the spans of the frontmatter entries it left out.
+//!
+//! # Generated functions
+//!
+//! tixschema's `#[model_schema]` attribute gives the node and value types these functions, in
+//! every build:
+//!
+//! - `ts_definition()`, the `TypeScript` type of the JSON that
+//!   [`to_json`](crate::parser::to_json) writes, with the type's documentation as comments.
+//! - `zod_schema()`, a Zod 4 schema of that JSON, as `TypeScript` text.
+//! - `json_schema()`, a JSON Schema document of that JSON, as a `serde_json::Value`.
+//! - `enum_members()`, on [`FrontmatterFormat`], [`Alignment`], [`TableFormat`], [`Continues`]
+//!   and [`LinkForm`]: the name each variant is written as.
+//! - `from_value_with()` and `from_value_piped()`, which read a `serde_json::Value` and hand
+//!   what does not read to a callback, or to resolvers, that may repair it.
+//!
+//! Call a generic type with its default filled in, as `<Document>::ts_definition()`. Beside each
+//! type, the attribute writes a public module named after it, such as `raw_document_schema`.
+//! Its `Schema` struct gives the same descriptions, and it names the types the generated
+//! functions use, such as `Issue` and `Verdict`. [`Mapping`], a type alias, has only its module,
+//! `mapping_schema`.
+//!
+//! `from_value_with` repairs a stored document that no longer reads. Its callback gets the JSON
+//! value, which it may change, and each `Issue` found in it, such as `Issue::Invalid`, which
+//! holds the `path` of the value and the value `found` there. The callback returns
+//! `Verdict::Fixed` to read the changed value again, or `Verdict::Reject` to fail with the
+//! issues. Here a stored tag is misspelled:
+//!
+//! ```rust
+//! use arky::parser::ast::{RawDocument, raw_document_schema};
+//! use arky::parser::parse;
+//! use serde_json::json;
+//!
+//! let stored = json!({
+//!     "t": "vaild",
+//!     "bd": { "se": [{ "bl": [], "hd": { "ch": [{ "t": "text", "v": "Plan" }] }, "ss": [] }] }
+//! });
+//! let read = <RawDocument>::from_value_with(stored, |value, issues| {
+//!     for issue in issues {
+//!         match issue {
+//!             raw_document_schema::Issue::Invalid { path, found, .. } if *found == "vaild" => {
+//!                 path.set_in_value(value, json!("valid"));
+//!             }
+//!             _ => {}
+//!         }
+//!     }
+//!     raw_document_schema::Verdict::Fixed
+//! })?;
+//! assert_eq!(read, parse("# Plan\n").document);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! With the `mongodb` feature, each type also has `MONGO_FIELDS`, a const of typed paths that
+//! build `bson` filters and updates, such as `<RawDocument>::MONGO_FIELDS.is_valid()`. It also
+//! has typed operations over a `mongodb::Collection<bson::Document>`, such as `find_one` and
+//! `insert_one`, and `from_bson_with` and `from_bson_piped`, which read a stored
+//! `bson::Document`. An operation is awaited and fails with the schema module's
+//! `OperationError`.
+//!
+#![cfg_attr(
+    feature = "mongodb",
+    doc = "
+This function, which needs a running server, gives the first stored document that is
+`RawDocument::Valid`:
+
+```rust
+use arky::parser::ast::RawDocument;
+use arky::parser::ast::raw_document_schema::OperationError;
+
+async fn first_valid(
+    collection: &mongodb::Collection<bson::Document>,
+) -> Result<Option<RawDocument>, OperationError> {
+    <RawDocument>::find_one(collection, <RawDocument>::MONGO_FIELDS.is_valid()).await
+}
+```
+"
+)]
+//!
+//! With the `binary-format` feature, each node struct derives rkyv's `Archive`, which writes an
+//! archived struct beside it, such as `ArchivedDocument`, and each enum's archived form has a
+//! public name, such as `ArchivedRawDocument`. No `kind` is archived.
 
 mod value_serde;
 
@@ -36,12 +156,14 @@ const RED_ZONE: usize = 3 * 1024 * 1024;
 /// The size of each segment `grown` adds.
 const GROWTH: usize = 4 * 1024 * 1024;
 
-/// The type an extension gave a node, or `None`. Boxed, because a markdown
+/// The node an extension gave a plain node, or `None`. Boxed, because a markdown
 /// block can hold a markdown block.
 ///
-/// JSON leaves it out: the claim pass builds it again from the plain node
-/// under it. Editing it leaves that plain node as it was, so a store writes
-/// each claimed node back into its plain node before it writes the tree.
+/// [`write`](crate::writer::write) hands a claimed node to its extension, which writes it in
+/// place of the plain node under it: a change to the `value` of a `markdown` code block that
+/// arky's `Markdown` extension claimed does not show in the written text. JSON, the binary form
+/// and the stores keep only the plain node, and
+/// [`rebuild_with`](crate::parser::rebuild_with) builds the claims again.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Kind<E>(pub Option<Box<E::Node<E>>>)
@@ -61,8 +183,8 @@ impl<E> Kind<E>
 where
     E: Extension,
 {
-    /// `node`, an extension's node. The plain node that carries it is not
-    /// changed, and JSON, binary and the stores keep only that plain node.
+    /// A claim of `node`, an extension's node, for a tree built by hand. The plain node that
+    /// carries it is not changed.
     #[must_use]
     pub fn new(node: E::Node<E>) -> Self {
         Self(Some(Box::new(node)))
@@ -71,6 +193,8 @@ where
 
 /// What `parse` builds: a document whose frontmatter reads, or one whose
 /// frontmatter no entry of reads.
+///
+/// JSON writes it with a `t` tag, `"valid"` or `"invalid"`, beside the fields of its document.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "")]
@@ -80,11 +204,13 @@ pub enum RawDocument<E = Markdown>
 where
     E: Extension,
 {
+    /// A file whose frontmatter keeps no entry, and refuses or drops at least one.
     Invalid(InvalidDocument),
+    /// Any other file, with or without a frontmatter.
     Valid(Document<E>),
 }
 
-/// A `RawDocument` as rkyv archives it.
+/// A [`RawDocument`] as rkyv archives it, with the `binary-format` feature.
 #[cfg(feature = "binary-format")]
 pub type ArchivedRawDocument<E = Markdown> = mirror::ArchivedRawDocumentMirror<E>;
 
@@ -99,8 +225,10 @@ pub type ArchivedRawDocument<E = Markdown> = mirror::ArchivedRawDocumentMirror<E
 )]
 #[non_exhaustive]
 pub struct InvalidDocument {
+    /// The markdown after the frontmatter, which only arky's `Markdown` extension reads.
     #[serde(rename = "bd")]
     pub body: MarkdownBlock<Markdown>,
+    /// The frontmatter as written.
     #[serde(rename = "data")]
     pub frontmatter: InvalidFrontmatter,
 }
@@ -124,11 +252,14 @@ impl InvalidDocument {
 )]
 #[non_exhaustive]
 pub struct InvalidFrontmatter {
+    /// The reader's message for the first entry that does not read.
     #[serde(rename = "er")]
     pub error: String,
+    /// The syntax the frontmatter is written in.
     #[serde(rename = "fo")]
     #[cfg_attr(feature = "binary-format", rkyv(with = FrontmatterFormatMirror))]
     pub format: FrontmatterFormat,
+    /// The text between the delimiter lines, without the line ending of its last line.
     #[serde(rename = "tx")]
     pub text: String,
 }
@@ -147,6 +278,8 @@ impl InvalidFrontmatter {
 }
 
 /// A markdown file whose frontmatter, if it has one, reads.
+///
+/// It does not record the syntax of its frontmatter: a write picks the syntax.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(
@@ -160,12 +293,15 @@ pub struct Document<E = Markdown>
 where
     E: Extension,
 {
+    /// The markdown after the frontmatter, or the whole file when it has none.
     #[serde(rename = "bd")]
     pub body: MarkdownBlock<E>,
+    /// The frontmatter's entries, or `None` when the file has no frontmatter.
     #[serde(rename = "data")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "binary-format", rkyv(with = Map<MappingMirror>))]
     pub frontmatter: Option<Mapping>,
+    /// The node an extension gave the whole file, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -192,21 +328,31 @@ where
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum FrontmatterFormat {
+    /// TOML, between `+++` lines.
     Toml,
+    /// YAML, between `---` lines, the syntax a valid document's frontmatter is written in unless
+    /// told otherwise.
     #[default]
     Yaml,
 }
 
-/// A `FrontmatterFormat` as rkyv archives it.
+/// A [`FrontmatterFormat`] as rkyv archives it, with the `binary-format` feature.
 #[cfg(feature = "binary-format")]
 pub type ArchivedFrontmatterFormat = mirror::ArchivedFrontmatterFormatMirror;
 
 /// Keys and their values, in the order they were written. A key appears once.
+///
+/// In YAML, a key written twice reads as one key holding a list of its values.
 #[model_schema()]
 pub type Mapping = IndexMap<String, Value>;
 
 /// What a key maps to, or what a list holds. Written untagged: a frontmatter
 /// is plain values, a date a BSON `Date`, a time `{ t: "time", v: "07:32:00" }`.
+///
+/// JSON and BSON keep a date-time as an instant in UTC, to the millisecond: one with an offset
+/// or none reads back as an `OffsetDateTime` at `+00:00`, or as a `Date` when it is at midnight
+/// UTC. In JSON, a float that is not finite is the text `nan`, `inf` or `-inf`, and reads back
+/// as a `String`.
 #[model_schema(enable = ["decode_with", "mongodb"])]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -223,12 +369,16 @@ pub type Mapping = IndexMap<String, Value>;
     reason = "serde reads an untagged enum's variants in declaration order"
 )]
 pub enum Value {
+    /// `true` or `false`.
     Boolean(bool),
+    /// A whole number.
     Integer(i64),
-    /// A finite float.
+    /// A finite float. The readers read `nan` and `inf` as a `String`.
     #[serde(with = "value_serde::finite")]
     Float(f64),
+    /// Text.
     String(String),
+    /// A date, such as `2026-10-17`.
     #[serde(with = "value_serde::midnight")]
     Date(NaiveDate),
     /// A date and time with an offset, such as `1979-05-27T07:32:00+02:00`.
@@ -237,17 +387,21 @@ pub enum Value {
     /// A date and time with no offset, such as `1979-05-27T07:32:00`.
     #[serde(with = "value_serde::as_if_utc")]
     DateTime(NaiveDateTime),
+    /// A time of day, such as `07:32:00`, which TOML reads. YAML has none: a write to YAML gives
+    /// the quoted text.
     #[serde(with = "value_serde::time_of_day")]
     Time(NaiveTime),
+    /// A table or a mapping: keys and their values.
     #[serde(deserialize_with = "value_serde::plain_mapping::deserialize")]
     Mapping(Mapping),
+    /// A list of values.
     #[serde(deserialize_with = "grown")]
     Sequence(Vec<Self>),
     /// YAML only: TOML has no null.
     Null(()),
 }
 
-/// A `Value` as rkyv archives it.
+/// A [`Value`] as rkyv archives it, with the `binary-format` feature.
 #[cfg(feature = "binary-format")]
 pub type ArchivedValue = mirror::ArchivedValueMirror;
 
@@ -266,9 +420,12 @@ pub struct MarkdownBlock<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave the block, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// Its sections, in order. Text before the first heading sits in a first section with no
+    /// heading.
     #[serde(rename = "se")]
     #[serde(deserialize_with = "grown")]
     pub sections: Vec<Section<E>>,
@@ -298,20 +455,29 @@ pub enum Block<E = Markdown>
 where
     E: Extension,
 {
+    /// Lines marked with `>`, kept as raw text.
     BlockQuote(BlockQuote<E>),
+    /// A fenced or indented code block.
     CodeBlock(CodeBlock<E>),
+    /// Raw HTML on lines of its own.
     Html(Html<E>),
+    /// A bullet or ordered list.
     List(List<E>),
+    /// Lines of text.
     Paragraph(Paragraph<E>),
+    /// A pipe, grid or simple table.
     Table(Table<E>),
+    /// A line such as `---`.
     ThematicBreak(ThematicBreak<E>),
 }
 
-/// A `Block` as rkyv archives it.
+/// A [`Block`] as rkyv archives it, with the `binary-format` feature.
 #[cfg(feature = "binary-format")]
 pub type ArchivedBlock<E = Markdown> = mirror::ArchivedBlockMirror<E>;
 
 /// Quoted text, without its `>` marks. Nothing inside it is read.
+///
+/// Parse `value` to read the markdown it holds.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(
@@ -325,9 +491,11 @@ pub struct BlockQuote<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave the quote, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// The quoted lines, each without its `>` mark.
     #[serde(rename = "v")]
     pub value: String,
 }
@@ -361,12 +529,15 @@ pub struct Html<E = Markdown>
 where
     E: Extension,
 {
+    /// Whether an inline piece goes on across a line end.
     #[serde(rename = "co")]
     #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
+    /// The node an extension gave the HTML, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// The HTML as written.
     #[serde(rename = "v")]
     pub value: String,
 }
@@ -400,6 +571,7 @@ pub struct ThematicBreak<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave the break, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -417,8 +589,8 @@ where
 /// A heading, the blocks under it, then its subsections. Its level is its
 /// depth in the `MarkdownBlock`.
 ///
-/// `heading` is `None` when no heading line was written, and a heading line
-/// with no text is a heading with no children.
+/// A block after a subsection belongs to that subsection: a section ends at the next heading of
+/// its own level or a higher one.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(
@@ -435,15 +607,21 @@ pub struct Section<E = Markdown>
 where
     E: Extension,
 {
+    /// The blocks between the heading and the first subsection.
     #[serde(rename = "bl")]
     #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<BlockMirror<E>>))]
     pub blocks: Vec<Block<E>>,
+    /// The heading line, or `None` when no heading line was written: for the text before the
+    /// first heading, and for a level the next heading skips. A heading line with no text is a
+    /// heading with no children.
     #[serde(rename = "hd")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heading: Option<Heading<E>>,
+    /// The node an extension gave the section, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// The sections one level deeper, in order.
     #[serde(rename = "ss")]
     #[serde(deserialize_with = "grown")]
     #[cfg_attr(feature = "binary-format", rkyv(omit_bounds))]
@@ -471,7 +649,8 @@ where
     }
 }
 
-/// A heading line, such as `# Ship parser`. An empty heading has no children.
+/// A heading line, such as `# Bread`, or a line of text underlined with `===` or `---`. An empty
+/// heading has no children.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(
@@ -485,9 +664,11 @@ pub struct Heading<E = Markdown>
 where
     E: Extension,
 {
+    /// The inline nodes of the heading's text.
     #[serde(rename = "ch")]
     #[cfg_attr(feature = "binary-format", rkyv(with = Map<InlineMirror<E>>))]
     pub children: Vec<Inline<E>>,
+    /// The node an extension gave the heading, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -507,7 +688,8 @@ where
     }
 }
 
-/// A set of lines, ended by a blank line.
+/// Lines of text, ended by a blank line or by a block that starts on the next line, such as a
+/// list item, a heading or a fence.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(
@@ -521,9 +703,11 @@ pub struct Paragraph<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave the paragraph, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// Its lines, in order.
     #[serde(rename = "li")]
     pub lines: Vec<Line<E>>,
 }
@@ -556,9 +740,11 @@ pub struct Line<E = Markdown>
 where
     E: Extension,
 {
+    /// The inline nodes written on the line.
     #[serde(rename = "ch")]
     #[cfg_attr(feature = "binary-format", rkyv(with = Map<InlineMirror<E>>))]
     pub children: Vec<Inline<E>>,
+    /// The node an extension gave the line, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -581,9 +767,7 @@ where
 /// A bullet or ordered list.
 ///
 /// Its items have the same bullet character, or the same delimiter after
-/// their number. `start` is an ordered list's first number, `None` for a
-/// bullet list. `loose` is set when a blank line separates two items, or two
-/// blocks of one item.
+/// their number.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(
@@ -597,13 +781,18 @@ pub struct List<E = Markdown>
 where
     E: Extension,
 {
+    /// Its items, in order.
     #[serde(rename = "it")]
     pub items: Vec<Item<E>>,
+    /// The node an extension gave the list, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// Whether a blank line separates two items, or two blocks of one item. A loose list is
+    /// written with a blank line between its items.
     #[serde(rename = "lo")]
     pub loose: bool,
+    /// An ordered list's first number, or `None` for a bullet list.
     #[serde(rename = "st")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start: Option<u64>,
@@ -640,8 +829,10 @@ pub struct Item<E = Markdown>
 where
     E: Extension,
 {
+    /// The markdown the item holds, its heading levels counted from one.
     #[serde(rename = "bd")]
     pub body: MarkdownBlock<E>,
+    /// The node an extension gave the item, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -664,9 +855,9 @@ where
 /// Lines between two fences of backticks or of tildes, or indented four
 /// columns past their parent's.
 ///
-/// `value` holds the lines as the block holds them. The info string, the
-/// text after the opening fence, is split into `language`, its first word,
-/// `None` when there is no info string, and `args`, the rest.
+/// The info string, the text after the opening fence, is split into `language`, its first
+/// word, and `args`, the rest. arky's `Markdown` extension reads a block whose language is
+/// `markdown` or `md` as a whole document.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(
@@ -680,15 +871,20 @@ pub struct CodeBlock<E = Markdown>
 where
     E: Extension,
 {
+    /// The rest of the info string, after the language.
     #[serde(rename = "ar")]
     #[cfg_attr(feature = "binary-format", rkyv(with = ArgsMirror))]
     pub args: Args,
+    /// The node an extension gave the block, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// The first word of the info string, or `None` when there is no info string.
     #[serde(rename = "la")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    /// The lines of the block, without the fences or the indentation, and with no line ending
+    /// after the last.
     #[serde(rename = "v")]
     pub value: String,
 }
@@ -711,6 +907,8 @@ where
 }
 
 /// The rest of a fenced code block's info string, after its language.
+///
+/// `title="README.md",showLineNumbers=true` reads as `Toml`, and `Example of a list` as `Text`.
 #[model_schema(enable = ["decode_with", "mongodb"])]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", content = "v", rename_all = "kebab-case")]
@@ -723,7 +921,7 @@ pub enum Args {
     Toml(Mapping),
 }
 
-/// An `Args` as rkyv archives it.
+/// An [`Args`] as rkyv archives it, with the `binary-format` feature.
 #[cfg(feature = "binary-format")]
 pub type ArchivedArgs = mirror::ArchivedArgsMirror;
 
@@ -742,17 +940,23 @@ pub struct Table<E = Markdown>
 where
     E: Extension,
 {
+    /// How each column's cells are aligned, one per column.
     #[serde(rename = "al")]
     #[cfg_attr(feature = "binary-format", rkyv(with = Map<AlignmentMirror>))]
     pub alignments: Vec<Alignment>,
+    /// The syntax the table was read from. A write picks a pipe or a grid table by the table's
+    /// shape, whatever this says.
     #[serde(rename = "fo")]
     #[cfg_attr(feature = "binary-format", rkyv(with = TableFormatMirror))]
     pub format: TableFormat,
+    /// The header rows.
     #[serde(rename = "he")]
     pub head: Vec<TableRow<E>>,
+    /// The node an extension gave the table, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// The rows under the header.
     #[serde(rename = "ro")]
     pub rows: Vec<TableRow<E>>,
 }
@@ -794,8 +998,10 @@ pub struct TableRow<E = Markdown>
 where
     E: Extension,
 {
+    /// Its cells, one per column.
     #[serde(rename = "ce")]
     pub cells: Vec<TableCell<E>>,
+    /// The node an extension gave the row, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -829,8 +1035,10 @@ pub struct TableCell<E = Markdown>
 where
     E: Extension,
 {
+    /// The markdown the cell holds, its heading levels counted from one.
     #[serde(rename = "bd")]
     pub body: MarkdownBlock<E>,
+    /// The node an extension gave the cell, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -856,13 +1064,17 @@ where
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum Alignment {
+    /// Centered: `:---:` in a pipe table's delimiter row.
     Center,
+    /// No alignment: `---`.
     Default,
+    /// Left: `:---`.
     Left,
+    /// Right: `---:`.
     Right,
 }
 
-/// An `Alignment` as rkyv archives it.
+/// An [`Alignment`] as rkyv archives it, with the `binary-format` feature.
 #[cfg(feature = "binary-format")]
 pub type ArchivedAlignment = mirror::ArchivedAlignmentMirror;
 
@@ -880,7 +1092,7 @@ pub enum TableFormat {
     Simple,
 }
 
-/// A `TableFormat` as rkyv archives it.
+/// A [`TableFormat`] as rkyv archives it, with the `binary-format` feature.
 #[cfg(feature = "binary-format")]
 pub type ArchivedTableFormat = mirror::ArchivedTableFormatMirror;
 
@@ -894,17 +1106,25 @@ pub enum Inline<E = Markdown>
 where
     E: Extension,
 {
+    /// Text between backticks.
     Code(Code<E>),
+    /// Text between `*` or `_`.
     Emphasis(Emphasis<E>),
+    /// Inline HTML, such as `<span>`.
     Html(Html<E>),
+    /// An embed, such as `![alt](target)`.
     Image(Image<E>),
+    /// A hard line break.
     LineBreak(LineBreak<E>),
+    /// A link, such as `[text](target)`.
     Link(Link<E>),
+    /// Text between `**` or `__`.
     Strong(Strong<E>),
+    /// Plain text.
     Text(Text<E>),
 }
 
-/// An `Inline` as rkyv archives it.
+/// An [`Inline`] as rkyv archives it, with the `binary-format` feature.
 #[cfg(feature = "binary-format")]
 pub type ArchivedInline<E = Markdown> = mirror::ArchivedInlineMirror<E>;
 
@@ -927,7 +1147,7 @@ pub enum Continues {
     Previous,
 }
 
-/// A `Continues` as rkyv archives it.
+/// A [`Continues`] as rkyv archives it, with the `binary-format` feature.
 #[cfg(feature = "binary-format")]
 pub type ArchivedContinues = mirror::ArchivedContinuesMirror;
 
@@ -945,9 +1165,11 @@ pub struct Text<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave the text, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// The text, its escapes and character references resolved.
     #[serde(rename = "v")]
     pub value: String,
 }
@@ -983,13 +1205,16 @@ pub struct Emphasis<E = Markdown>
 where
     E: Extension,
 {
+    /// The inline nodes between the marks.
     #[serde(rename = "ch")]
     #[serde(deserialize_with = "grown")]
     #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<InlineMirror<E>>))]
     pub children: Vec<Inline<E>>,
+    /// Whether this piece goes on across a line end.
     #[serde(rename = "co")]
     #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
+    /// The node an extension gave the emphasis, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -1027,13 +1252,16 @@ pub struct Strong<E = Markdown>
 where
     E: Extension,
 {
+    /// The inline nodes between the marks.
     #[serde(rename = "ch")]
     #[serde(deserialize_with = "grown")]
     #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<InlineMirror<E>>))]
     pub children: Vec<Inline<E>>,
+    /// Whether this piece goes on across a line end.
     #[serde(rename = "co")]
     #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
+    /// The node an extension gave the strong emphasis, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -1069,6 +1297,7 @@ pub struct LineBreak<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave the line break, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -1105,21 +1334,27 @@ pub struct Link<E = Markdown>
 where
     E: Extension,
 {
+    /// The text shown, empty for `[[target]]`.
     #[serde(rename = "ch")]
     #[serde(deserialize_with = "grown")]
     #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<LinkInlineMirror<E>>))]
     pub children: Vec<LinkInline<E>>,
+    /// Whether this piece goes on across a line end.
     #[serde(rename = "co")]
     #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
+    /// How the link is written: `[text](target)` or `[[target|text]]`.
     #[serde(rename = "fr")]
     #[cfg_attr(feature = "binary-format", rkyv(with = LinkFormMirror))]
     pub form: LinkForm,
+    /// The node an extension gave the link, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// Where the link goes.
     #[serde(rename = "tg")]
     pub target: String,
+    /// The title written after the target, if any.
     #[serde(rename = "ti")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -1159,16 +1394,23 @@ pub enum LinkInline<E = Markdown>
 where
     E: Extension,
 {
+    /// Text between backticks.
     Code(Code<E>),
+    /// Text between `*` or `_`.
     Emphasis(LinkEmphasis<E>),
+    /// Inline HTML.
     Html(Html<E>),
+    /// An embed, such as a badge inside a link.
     Image(Image<E>),
+    /// A hard line break.
     LineBreak(LineBreak<E>),
+    /// Text between `**` or `__`.
     Strong(LinkStrong<E>),
+    /// Plain text.
     Text(Text<E>),
 }
 
-/// A `LinkInline` as rkyv archives it.
+/// A [`LinkInline`] as rkyv archives it, with the `binary-format` feature.
 #[cfg(feature = "binary-format")]
 pub type ArchivedLinkInline<E = Markdown> = mirror::ArchivedLinkInlineMirror<E>;
 
@@ -1189,13 +1431,16 @@ pub struct LinkEmphasis<E = Markdown>
 where
     E: Extension,
 {
+    /// The nodes between the marks.
     #[serde(rename = "ch")]
     #[serde(deserialize_with = "grown")]
     #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<LinkInlineMirror<E>>))]
     pub children: Vec<LinkInline<E>>,
+    /// Whether this piece goes on across a line end.
     #[serde(rename = "co")]
     #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
+    /// The node an extension gave the emphasis, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -1234,13 +1479,16 @@ pub struct LinkStrong<E = Markdown>
 where
     E: Extension,
 {
+    /// The nodes between the marks.
     #[serde(rename = "ch")]
     #[serde(deserialize_with = "grown")]
     #[cfg_attr(feature = "binary-format", rkyv(omit_bounds, with = Map<LinkInlineMirror<E>>))]
     pub children: Vec<LinkInline<E>>,
+    /// Whether this piece goes on across a line end.
     #[serde(rename = "co")]
     #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
+    /// The node an extension gave the strong emphasis, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
@@ -1274,7 +1522,7 @@ pub enum LinkForm {
     Wiki,
 }
 
-/// A `LinkForm` as rkyv archives it.
+/// A [`LinkForm`] as rkyv archives it, with the `binary-format` feature.
 #[cfg(feature = "binary-format")]
 pub type ArchivedLinkForm = mirror::ArchivedLinkFormMirror;
 
@@ -1295,19 +1543,25 @@ pub struct Image<E = Markdown>
 where
     E: Extension,
 {
+    /// The text in brackets, or the wiki alias after `|`.
     #[serde(rename = "at")]
     pub alt: String,
+    /// Whether this piece goes on across a line end.
     #[serde(rename = "co")]
     #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
+    /// How the embed is written: `![alt](target)` or `![[target|alt]]`.
     #[serde(rename = "fr")]
     #[cfg_attr(feature = "binary-format", rkyv(with = LinkFormMirror))]
     pub form: LinkForm,
+    /// The node an extension gave the image, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// The file or address the embed names.
     #[serde(rename = "tg")]
     pub target: String,
+    /// The title written after the target, if any.
     #[serde(rename = "ti")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -1332,7 +1586,7 @@ where
     }
 }
 
-/// Text between backticks, such as `` `arky check` ``.
+/// Text between backticks, such as `` `cargo test` ``.
 #[model_schema(default_types(E = Markdown), enable = ["decode_with", "mongodb"])]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(
@@ -1346,12 +1600,15 @@ pub struct Code<E = Markdown>
 where
     E: Extension,
 {
+    /// Whether this piece goes on across a line end.
     #[serde(rename = "co")]
     #[cfg_attr(feature = "binary-format", rkyv(with = ContinuesMirror))]
     pub continues: Continues,
+    /// The node an extension gave the code span, or none.
     #[serde(skip)]
     #[cfg_attr(feature = "binary-format", rkyv(with = Skip))]
     pub kind: Kind<E>,
+    /// The text between the backticks.
     #[serde(rename = "v")]
     pub value: String,
 }

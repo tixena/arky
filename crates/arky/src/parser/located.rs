@@ -1,5 +1,7 @@
 //! The tree the parser builds, every node with the byte range it covers.
 //!
+//! An extension receives it as the [`Construct`](crate::parser::extension::Construct) that
+//! `Extension::claim` is offered, and reads spans from it to point its errors at the source.
 //! Its frontmatter values are as the TOML and YAML readers build them. At the
 //! end of a parse, `into_model` moves each node into the model, spans left out.
 
@@ -23,9 +25,13 @@ pub struct Document<E = Markdown>
 where
     E: Extension,
 {
+    /// The markdown after the frontmatter, or the whole file when it has none.
     pub body: MarkdownBlock<E>,
+    /// The frontmatter: `None` when the file has none, an error when no entry of it reads.
     pub frontmatter: Option<Result<Frontmatter, BrokenFrontmatter>>,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -34,9 +40,13 @@ where
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct BrokenFrontmatter {
+    /// The error of the first entry the reader refused or dropped.
     pub error: ParseError,
+    /// The syntax the frontmatter is written in.
     pub format: FrontmatterFormat,
+    /// The byte range of the frontmatter, its delimiter lines included.
     pub span: Range<usize>,
+    /// The text between the delimiter lines, without the line ending of its last line.
     pub text: String,
 }
 
@@ -60,8 +70,11 @@ pub struct Frontmatter {
     /// Each entry and key that could not be read and was left out, in file
     /// order.
     pub dropped: Vec<ParseError>,
+    /// The syntax the frontmatter is written in.
     pub format: FrontmatterFormat,
+    /// The entries that read.
     pub mapping: ast::Mapping,
+    /// The byte range of the frontmatter, its delimiter lines included.
     pub span: Range<usize>,
 }
 
@@ -73,8 +86,11 @@ pub struct MarkdownBlock<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// Its sections, in order.
     pub sections: Vec<Section<E>>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -82,6 +98,7 @@ impl<E> MarkdownBlock<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::MarkdownBlock<E> {
         ast::MarkdownBlock {
@@ -98,12 +115,19 @@ pub enum Block<E = Markdown>
 where
     E: Extension,
 {
+    /// Lines marked with `>`, kept as raw text.
     BlockQuote(BlockQuote<E>),
+    /// A fenced or indented code block.
     CodeBlock(CodeBlock<E>),
+    /// Raw HTML on lines of its own.
     Html(Html<E>),
+    /// A bullet or ordered list.
     List(List<E>),
+    /// Lines of text.
     Paragraph(Paragraph<E>),
+    /// A pipe, grid or simple table.
     Table(Table<E>),
+    /// A line such as `---`.
     ThematicBreak(ThematicBreak<E>),
 }
 
@@ -111,6 +135,7 @@ impl<E> Block<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::Block<E> {
         match self {
@@ -148,8 +173,11 @@ pub struct BlockQuote<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
+    /// The quoted lines, each without its `>` mark.
     pub value: String,
 }
 
@@ -157,6 +185,7 @@ impl<E> BlockQuote<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::BlockQuote<E> {
         ast::BlockQuote {
@@ -174,9 +203,13 @@ pub struct Html<E = Markdown>
 where
     E: Extension,
 {
+    /// Whether an inline piece goes on across a line end.
     pub continues: Continues,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
+    /// The HTML as written.
     pub value: String,
 }
 
@@ -184,6 +217,7 @@ impl<E> Html<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::Html<E> {
         ast::Html {
@@ -201,7 +235,9 @@ pub struct ThematicBreak<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -209,6 +245,7 @@ impl<E> ThematicBreak<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::ThematicBreak<E> {
         ast::ThematicBreak { kind: self.kind }
@@ -226,10 +263,15 @@ pub struct Section<E = Markdown>
 where
     E: Extension,
 {
+    /// The blocks between the heading and the first subsection.
     pub blocks: Vec<Block<E>>,
+    /// The heading line, or `None` when no heading line was written.
     pub heading: Option<Heading<E>>,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
+    /// The sections one level deeper, in order.
     pub subsections: Vec<Self>,
 }
 
@@ -237,6 +279,7 @@ impl<E> Section<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::Section<E> {
         ast::Section {
@@ -248,7 +291,7 @@ where
     }
 }
 
-/// A heading line, such as `# Ship parser`. An empty heading has no children
+/// A heading line, such as `# Bread`. An empty heading has no children
 /// and an empty span at the start of its section.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -256,8 +299,11 @@ pub struct Heading<E = Markdown>
 where
     E: Extension,
 {
+    /// The inline nodes of the heading's text.
     pub children: Vec<Inline<E>>,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -265,6 +311,7 @@ impl<E> Heading<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::Heading<E> {
         ast::Heading {
@@ -274,15 +321,19 @@ where
     }
 }
 
-/// A set of lines, ended by a blank line.
+/// Lines of text, ended by a blank line or by a block that starts on the next line, such as a
+/// list item, a heading or a fence.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Paragraph<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// Its lines, in order.
     pub lines: Vec<Line<E>>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -290,6 +341,7 @@ impl<E> Paragraph<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::Paragraph<E> {
         ast::Paragraph {
@@ -306,8 +358,11 @@ pub struct Line<E = Markdown>
 where
     E: Extension,
 {
+    /// The inline nodes written on the line.
     pub children: Vec<Inline<E>>,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -315,6 +370,7 @@ impl<E> Line<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::Line<E> {
         ast::Line {
@@ -327,19 +383,22 @@ where
 /// A bullet or ordered list.
 ///
 /// Its items have the same bullet character, or the same delimiter after
-/// their number. `start` is an ordered list's first number, `None` for a
-/// bullet list. `loose` is set when a blank line separates two items, or two
-/// blocks of one item.
+/// their number.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct List<E = Markdown>
 where
     E: Extension,
 {
+    /// Its items, in order.
     pub items: Vec<Item<E>>,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// Whether a blank line separates two items, or two blocks of one item.
     pub loose: bool,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
+    /// An ordered list's first number, or `None` for a bullet list.
     pub start: Option<u64>,
 }
 
@@ -347,6 +406,7 @@ impl<E> List<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::List<E> {
         ast::List {
@@ -365,8 +425,11 @@ pub struct Item<E = Markdown>
 where
     E: Extension,
 {
+    /// The markdown the item holds.
     pub body: MarkdownBlock<E>,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -374,6 +437,7 @@ impl<E> Item<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::Item<E> {
         ast::Item {
@@ -386,21 +450,27 @@ where
 /// Lines between two fences of backticks or of tildes, or indented four
 /// columns past their parent's.
 ///
-/// `content` is the range of those lines in the source, and `value` the lines
-/// as the block holds them. The info string, the text after the opening
-/// fence, is split into `language`, its first word, `None` when there is no
-/// info string, and `args`, the rest.
+/// The info string, the text after the opening fence, is split into `language`, its first word,
+/// and `args`, the rest.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct CodeBlock<E = Markdown>
 where
     E: Extension,
 {
+    /// The rest of the info string, after the language.
     pub args: Args,
+    /// The byte range of the block's lines in the source, its fences left out. An extension
+    /// reads it with [`Context::markdown`](crate::parser::extension::Context::markdown) or
+    /// [`Context::document`](crate::parser::extension::Context::document).
     pub content: Range<usize>,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The first word of the info string, or `None` when there is no info string.
     pub language: Option<String>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
+    /// The lines as the block holds them, without the fences or the indentation.
     pub value: String,
 }
 
@@ -408,6 +478,7 @@ impl<E> CodeBlock<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::CodeBlock<E> {
         ast::CodeBlock {
@@ -427,11 +498,17 @@ pub struct Table<E = Markdown>
 where
     E: Extension,
 {
+    /// How each column's cells are aligned, one per column.
     pub alignments: Vec<Alignment>,
+    /// The syntax the table was read from.
     pub format: TableFormat,
+    /// The header rows.
     pub head: Vec<TableRow<E>>,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The rows under the header.
     pub rows: Vec<TableRow<E>>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -439,6 +516,7 @@ impl<E> Table<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::Table<E> {
         ast::Table {
@@ -458,8 +536,11 @@ pub struct TableRow<E = Markdown>
 where
     E: Extension,
 {
+    /// Its cells, one per column.
     pub cells: Vec<TableCell<E>>,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -467,6 +548,7 @@ impl<E> TableRow<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::TableRow<E> {
         ast::TableRow {
@@ -483,8 +565,11 @@ pub struct TableCell<E = Markdown>
 where
     E: Extension,
 {
+    /// The markdown the cell holds.
     pub body: MarkdownBlock<E>,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -492,6 +577,7 @@ impl<E> TableCell<E>
 where
     E: Extension,
 {
+    /// The model's node, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::TableCell<E> {
         ast::TableCell {
@@ -508,13 +594,21 @@ pub enum Inline<E = Markdown>
 where
     E: Extension,
 {
+    /// Text between backticks.
     Code(Code<E>),
+    /// Text between `*` or `_`.
     Emphasis(Emphasis<E>),
+    /// Inline HTML, such as `<span>`.
     Html(Html<E>),
+    /// An embed, such as `![alt](target)`.
     Image(Image<E>),
+    /// A hard line break.
     LineBreak(LineBreak<E>),
+    /// A link, such as `[text](target)`.
     Link(Link<E>),
+    /// Text between `**` or `__`.
     Strong(Strong<E>),
+    /// Plain text.
     Text(Text<E>),
 }
 
@@ -590,8 +684,11 @@ pub struct Text<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
+    /// The text, its escapes and character references resolved.
     pub value: String,
 }
 
@@ -602,9 +699,13 @@ pub struct Emphasis<E = Markdown>
 where
     E: Extension,
 {
+    /// The inline nodes between the marks.
     pub children: Vec<Inline<E>>,
+    /// Whether this piece goes on across a line end.
     pub continues: Continues,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -615,9 +716,13 @@ pub struct Strong<E = Markdown>
 where
     E: Extension,
 {
+    /// The inline nodes between the marks.
     pub children: Vec<Inline<E>>,
+    /// Whether this piece goes on across a line end.
     pub continues: Continues,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -629,7 +734,9 @@ pub struct LineBreak<E = Markdown>
 where
     E: Extension,
 {
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
 }
 
@@ -645,12 +752,19 @@ pub struct Link<E = Markdown>
 where
     E: Extension,
 {
+    /// The text shown, empty for `[[target]]`.
     pub children: Vec<Inline<E>>,
+    /// Whether this piece goes on across a line end.
     pub continues: Continues,
+    /// How the link is written: `[text](target)` or `[[target|text]]`.
     pub form: LinkForm,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
+    /// Where the link goes.
     pub target: String,
+    /// The title written after the target, if any.
     pub title: Option<String>,
 }
 
@@ -664,25 +778,36 @@ pub struct Image<E = Markdown>
 where
     E: Extension,
 {
+    /// The text in brackets, or the wiki alias after `|`.
     pub alt: String,
+    /// Whether this piece goes on across a line end.
     pub continues: Continues,
+    /// How the embed is written: `![alt](target)` or `![[target|alt]]`.
     pub form: LinkForm,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
+    /// The file or address the embed names.
     pub target: String,
+    /// The title written after the target, if any.
     pub title: Option<String>,
 }
 
-/// Text between backticks, such as `` `arky check` ``.
+/// Text between backticks, such as `` `cargo test` ``.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Code<E = Markdown>
 where
     E: Extension,
 {
+    /// Whether this piece goes on across a line end.
     pub continues: Continues,
+    /// The node an extension gave this one, or none.
     pub kind: Kind<E>,
+    /// The byte range the node covers in the source.
     pub span: Range<usize>,
+    /// The text between the backticks.
     pub value: String,
 }
 
@@ -690,7 +815,9 @@ where
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Mapping {
+    /// Each key and its pair, in the order the keys were first written.
     pub pairs: IndexMap<String, Pair>,
+    /// The byte range the mapping covers in the source.
     pub span: Range<usize>,
 }
 
@@ -711,8 +838,11 @@ impl Mapping {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Pair {
+    /// The span of each later occurrence of the key, in file order.
     pub repeats: Vec<Range<usize>>,
+    /// The byte range from the key's first occurrence to the end of its value.
     pub span: Range<usize>,
+    /// The value under the key.
     pub value: Value,
 }
 
@@ -720,12 +850,16 @@ pub struct Pair {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Value {
+    /// A table or a mapping.
     Mapping(Mapping),
+    /// A single value.
     Scalar(Scalar),
+    /// A list.
     Sequence(Sequence),
 }
 
 impl Value {
+    /// The model's value, its spans left out.
     #[must_use]
     pub fn into_model(self) -> ast::Value {
         match self {
@@ -752,7 +886,9 @@ impl Value {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Sequence {
+    /// Its values, in order.
     pub items: Vec<Value>,
+    /// The byte range the list covers in the source.
     pub span: Range<usize>,
 }
 
@@ -760,7 +896,9 @@ pub struct Sequence {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Scalar {
+    /// The byte range the value covers in the source.
     pub span: Range<usize>,
+    /// The value it reads as.
     pub value: ScalarValue,
 }
 
@@ -768,22 +906,28 @@ pub struct Scalar {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum ScalarValue {
+    /// `true` or `false`.
     Boolean(bool),
+    /// A date, such as `2026-10-17`.
     Date(NaiveDate),
     /// A date and time with no offset.
     DateTime(NaiveDateTime),
     /// A finite float.
     Float(f64),
+    /// A whole number.
     Integer(i64),
     /// YAML only: TOML has no null.
     Null,
     /// A date and time with its offset from UTC.
     OffsetDateTime(DateTime<FixedOffset>),
+    /// Text.
     String(String),
+    /// A time of day, such as `07:32:00`.
     Time(NaiveTime),
 }
 
 impl ScalarValue {
+    /// The model's value.
     #[must_use]
     pub fn into_model(self) -> ast::Value {
         match self {

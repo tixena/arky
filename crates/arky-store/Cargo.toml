@@ -46,3 +46,6 @@ tokio = { workspace = true, optional = true, features = ["time"] }
 [dev-dependencies]
 chrono.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
+
+[package.metadata.docs.rs]
+all-features = true

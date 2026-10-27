@@ -1,5 +1,24 @@
 //! The lock a save holds on a document in the file store and the `MinIO`
 //! store.
+//!
+//! A save through [`Store::write_with_embedded`] takes the lock of the
+//! document, `<path>.arky-lock` beside it, and checks the precondition under
+//! it. Before each file, and before the document, it checks that it still
+//! holds the lock and that the lock has not expired. After the document it
+//! gives the lock back, only while the lock still holds this save's GUID. In
+//! the file store a lock is a file holding the save's GUID, and its age counts
+//! from the file's modification time. In a bucket it is an object holding
+//! `<guid> <seconds since 1970-01-01 UTC>`; one whose text does not read
+//! counts as expired.
+//!
+//! A save that finds a lock that has not expired waits [`LockSettings::wait`]
+//! once and looks again; a lock still there and not expired fails the save
+//! with [`StoreError::Conflict`], before it writes anything. A lock older than
+//! [`LockSettings::expires`] has expired: a save removes it and takes its own,
+//! and `remove_expired_locks` on the file store or the `MinIO` store removes
+//! every one. A save that runs past `expires` fails with `Conflict` before its
+//! next write. A plain [`Store::write`] or [`Store::delete`] takes no lock,
+//! and the `MongoDB` store takes none at all.
 
 use alloc::collections::BTreeMap;
 use core::time::Duration;
@@ -19,14 +38,33 @@ const TAKE_TRIES: u32 = 10;
 
 /// How long a lock lasts after it is taken, and how long a save waits on a
 /// lock of another save that has not expired.
+///
+/// A store takes them through its `locking` method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LockSettings {
+    /// How long a lock lasts after it is taken. An older lock has expired.
     pub expires: Duration,
+    /// How long a save waits, once, on a lock of another save that has not
+    /// expired.
     pub wait: Duration,
 }
 
 impl LockSettings {
+    /// Settings whose locks last `expires` and whose saves wait `wait`.
+    ///
+    /// ```rust
+    /// use std::time::Duration;
+    ///
+    /// use arky_store::lock::LockSettings;
+    ///
+    /// let slow_saves = LockSettings::new(Duration::from_secs(60), Duration::from_secs(10));
+    /// assert_eq!(slow_saves.expires, Duration::from_secs(60));
+    /// assert_eq!(slow_saves.wait, Duration::from_secs(10));
+    ///
+    /// let usual = LockSettings::new(Duration::from_secs(5), Duration::from_secs(2));
+    /// assert_eq!(LockSettings::default(), usual);
+    /// ```
     #[must_use]
     pub const fn new(expires: Duration, wait: Duration) -> Self {
         Self { expires, wait }
@@ -170,6 +208,15 @@ where
 }
 
 /// The path of the lock of the file at `path`.
+///
+/// ```rust
+/// use arky_store::StorePath;
+/// use arky_store::lock::lock_of;
+///
+/// let report = StorePath::new("notes/report.md")?;
+/// assert_eq!(lock_of(&report)?.as_str(), "notes/report.md.arky-lock");
+/// # Ok::<(), arky_store::StoreError>(())
+/// ```
 ///
 /// # Errors
 ///

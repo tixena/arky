@@ -21,6 +21,9 @@ mongodb = ["tixschema/mongodb", "dep:mongodb", "dep:bson"]
 # The binary form: the tree and its files as an rkyv archive, for piping between arky commands.
 binary-format = ["dep:rkyv"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 # Error handling
 thiserror.workspace = true

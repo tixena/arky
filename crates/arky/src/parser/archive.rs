@@ -1,5 +1,9 @@
 //! rkyv adapters for the four chrono types a frontmatter value holds, which
 //! rkyv derives over none of. Each archives its value as plain integers.
+//!
+//! The module exists with the `binary-format` feature. Each adapter goes in an
+//! `#[rkyv(with = ...)]` attribute on a field of its chrono type, as arky's archived frontmatter
+//! values use them. An archived integer that chrono holds no value for fails to deserialize.
 
 use chrono::{
     DateTime, Datelike as _, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, TimeZone as _,

@@ -1,5 +1,40 @@
-//! Any serde type as a frontmatter `Value`, and a `Value` as the JSON value
+//! Any serde type as a frontmatter [`Value`], and a `Value` as the JSON value
 //! serde reads any type from.
+//!
+//! [`from_value`] reads a frontmatter, or any value in it, into a type of your own, and
+//! [`to_value`] builds a value from one. A `&Value` converts to a `serde_json::Value` with
+//! `From`, as in `serde_json::Value::from(&value)`: a date, a time and a date-time become the text chrono reads, and a float that is not
+//! finite becomes `null`.
+//!
+//! ```rust
+//! use arky::parser::ast::{RawDocument, Value};
+//! use arky::parser::parse;
+//! use arky::value::{from_value, to_value};
+//! use chrono::NaiveDate;
+//! use serde::{Deserialize, Serialize};
+//!
+//! #[derive(Debug, PartialEq, Deserialize, Serialize)]
+//! struct Post {
+//!     title: String,
+//!     tags: Vec<String>,
+//!     published: NaiveDate,
+//! }
+//!
+//! let source = "---\ntitle: Bread\ntags: [baking, recipes]\npublished: 2026-10-17\n---\n";
+//! let RawDocument::Valid(document) = parse(source).document else {
+//!     panic!("every frontmatter entry reads");
+//! };
+//! let frontmatter = Value::Mapping(document.frontmatter.expect("the post has a frontmatter"));
+//! let post: Post = from_value(&frontmatter)?;
+//! assert_eq!(post.tags, ["baking", "recipes"]);
+//! assert_eq!(post.published, NaiveDate::from_ymd_opt(2026, 10, 17).expect("a real date"));
+//!
+//! let Value::Mapping(written) = to_value(&post)? else {
+//!     panic!("a struct is written as a mapping");
+//! };
+//! assert_eq!(written.get("published"), Some(&Value::String("2026-10-17".to_owned())));
+//! # Ok::<(), arky::value::ValueError>(())
+//! ```
 
 #[cfg(test)]
 mod tests;
@@ -15,6 +50,8 @@ use serde::ser::{
 use crate::parser::ast::{Mapping, Value};
 
 /// Why a type could not be written as a `Value`, or read from one.
+///
+/// It holds a message, which its `Display` gives.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{message}")]
 #[non_exhaustive]
@@ -470,9 +507,26 @@ impl SerializeTupleVariant for VariantSequenceWriter {
 
 /// Reads a `T` from `value` through its JSON value.
 ///
+/// A date, a time and a date-time reach `T` as the text chrono reads, so a chrono field of `T`
+/// reads them.
+///
 /// # Errors
 ///
 /// Returns the error `T`'s `Deserialize` returns for what `value` holds.
+///
+/// # Examples
+///
+/// ```rust
+/// use arky::parser::ast::Value;
+/// use arky::value::from_value;
+/// use chrono::NaiveDate;
+///
+/// let day = NaiveDate::from_ymd_opt(2026, 10, 17).expect("a real date");
+/// assert_eq!(from_value::<NaiveDate>(&Value::Date(day))?, day);
+/// assert_eq!(from_value::<u32>(&Value::Integer(4))?, 4);
+/// assert!(from_value::<u32>(&Value::String("four".to_owned())).is_err());
+/// # Ok::<(), arky::value::ValueError>(())
+/// ```
 pub fn from_value<T>(value: &Value) -> Result<T, ValueError>
 where
     T: DeserializeOwned,
@@ -485,12 +539,26 @@ where
 /// Builds the `Value` that `value` writes through serde.
 ///
 /// An integer outside `i64` is the `String` of its digits, and a map key is
-/// its text.
+/// its text. A chrono type writes itself as text, so it becomes a `Value::String`, not a
+/// `Value::Date`. A `None` and a unit become `Value::Null`.
 ///
 /// # Errors
 ///
 /// Returns the error `T`'s `Serialize` returns, or one naming a map key that
 /// is not text, a number or a boolean.
+///
+/// # Examples
+///
+/// ```rust
+/// use arky::parser::ast::Value;
+/// use arky::value::to_value;
+///
+/// let tags = to_value(&["baking", "recipes"])?;
+/// let texts = vec![Value::String("baking".to_owned()), Value::String("recipes".to_owned())];
+/// assert_eq!(tags, Value::Sequence(texts));
+/// assert_eq!(to_value(&u64::MAX)?, Value::String("18446744073709551615".to_owned()));
+/// # Ok::<(), arky::value::ValueError>(())
+/// ```
 pub fn to_value<T>(value: &T) -> Result<Value, ValueError>
 where
     T: ?Sized + Serialize,
