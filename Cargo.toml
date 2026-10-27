@@ -8,6 +8,7 @@ edition = "2024"
 rust-version = "1.91"
 authors = ["Eduardo Burgos <eduardo@tixena.com>"]
 repository = "https://github.com/tixena/arky"
+license = "MIT"
 
 [workspace.dependencies]
 # Error handling
