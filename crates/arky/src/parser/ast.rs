@@ -65,12 +65,13 @@
 //!
 //! `from_value_with` repairs a stored document that no longer reads. Its callback gets the JSON
 //! value, which it may change, and each `Issue` found in it, such as `Issue::Invalid`, which
-//! holds the `path` of the value and the value `found` there. The callback returns
+//! holds the `path` of the value and the value `found` there. `set_at` and `remove_at`, from the
+//! module's `Stored` trait, change the value at that path. The callback returns
 //! `Verdict::Fixed` to read the changed value again, or `Verdict::Reject` to fail with the
 //! issues. Here a stored tag is misspelled:
 //!
 //! ```rust
-//! use arky::parser::ast::{RawDocument, raw_document_schema};
+//! use arky::parser::ast::{RawDocument, raw_document_schema, raw_document_schema::Stored as _};
 //! use arky::parser::parse;
 //! use serde_json::json;
 //!
@@ -82,7 +83,7 @@
 //!     for issue in issues {
 //!         match issue {
 //!             raw_document_schema::Issue::Invalid { path, found, .. } if *found == "vaild" => {
-//!                 path.set_in_value(value, json!("valid"));
+//!                 value.set_at(path, json!("valid"));
 //!             }
 //!             _ => {}
 //!         }

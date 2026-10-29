@@ -2850,7 +2850,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -2940,9 +2940,9 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tixschema"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e2b91aad6cdcd135c0bdbb4845a3291f68a0adc58340fdcd06fd8d2fc5f5b60"
+checksum = "69989627fc9555b03ceb6e49adbad2c58b0f80bbfd1981116b9ddad24c476730"
 dependencies = [
  "log",
  "proc-macro2",
