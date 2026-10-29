@@ -118,7 +118,7 @@ A path with no store is a file on disk. `-s minio:<bucket>`, with an optional `/
 
 | Recipe | Runs |
 |---|---|
-| `just all` | lint, build, the tests, and the store tests |
+| `just all` | lint, the tests, and the store tests |
 | `just test-stores` | the store tests against MongoDB and RustFS servers in containers it starts and stops (needs docker) |
 
 ## License
