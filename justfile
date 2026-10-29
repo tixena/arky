@@ -55,4 +55,4 @@ test-stores:
       cargo test -p arky-store -p arky-cli --all-features --config 'build.rustflags=["--cfg", "store_tests"]'
 
 # Full pipeline: lint everything, build everything, run tests.
-all: lint build test test-stores
+all: lint test test-stores

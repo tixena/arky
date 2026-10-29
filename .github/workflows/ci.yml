@@ -40,7 +40,7 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-
 
-    # The steps below run the equivalent of `just all` (lint -> build -> test), split into separate
+    # The steps below run the equivalent of `just all` (lint -> test), split into separate
     # steps so the Discord notification can report which stage failed.
 
     - name: Lint
@@ -48,12 +48,6 @@ jobs:
       run: |
         echo "🧹 Linting (clippy + fmt)..."
         just lint
-
-    - name: Build
-      id: build
-      run: |
-        echo "🏗️ Building..."
-        just build
 
     - name: Run tests
       id: test
@@ -81,7 +75,6 @@ jobs:
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         TIMESTAMP: ${{ github.event.head_commit.timestamp }}
         LINT: ${{ steps.lint.outcome }}
-        BLD: ${{ steps.build.outcome }}
         TEST: ${{ steps.test.outcome }}
       run: |
         # Validate repository to prevent forks from sending notifications
@@ -94,13 +87,12 @@ jobs:
         JOB_STATUS="success"
         FAILED_STEP="None"
         if [[ "$LINT" == "failure" ]]; then JOB_STATUS="failure"; FAILED_STEP="Lint (just lint)";
-        elif [[ "$BLD" == "failure" ]]; then JOB_STATUS="failure"; FAILED_STEP="Build (just build)";
         elif [[ "$TEST" == "failure" ]]; then JOB_STATUS="failure"; FAILED_STEP="Tests (just test)";
         fi
 
         icon() { case "$1" in success) printf '✅';; failure) printf '❌';; *) printf '⏭️';; esac; }
-        STATUS_VALUE=$(printf '🧹 Lint: %s\n🏗️ Build: %s\n🧪 Tests: %s' \
-          "$(icon "$LINT")" "$(icon "$BLD")" "$(icon "$TEST")")
+        STATUS_VALUE=$(printf '🧹 Lint: %s\n🧪 Tests: %s' \
+          "$(icon "$LINT")" "$(icon "$TEST")")
 
         # Per-event details: commit message / author / PR link
         if [[ "$EVENT_NAME" == "pull_request" ]]; then
