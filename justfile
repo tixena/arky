@@ -18,6 +18,10 @@ build: build-rust
 build-rust:
     cargo build
 
+# Check the workspace on the minimum supported Rust version.
+check-msrv:
+    cargo +1.98 check --workspace --all-features
+
 # Run the Rust test suite.
 test: test-rust
 
