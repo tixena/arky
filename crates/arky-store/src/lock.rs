@@ -19,6 +19,10 @@
 //! every one. A save that runs past `expires` fails with `Conflict` before its
 //! next write. A plain [`Store::write`] or [`Store::delete`] takes no lock,
 //! and the `MongoDB` store takes none at all.
+//!
+//! A store outside this crate implements [`Locks`] and calls
+//! [`write_with_embedded`] from its own `Store::write_with_embedded`, as the
+//! file store and the bucket stores do.
 
 use alloc::collections::BTreeMap;
 use core::time::Duration;
@@ -79,7 +83,9 @@ impl Default for LockSettings {
 }
 
 /// A lock as a store finds it.
-pub(crate) struct Found {
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Found {
     /// The GUID of the save that took it; empty when the lock does not read.
     pub holder: String,
     /// What a remove compares: the file's bytes, or the object's `ETag`.
@@ -89,8 +95,18 @@ pub(crate) struct Found {
     pub taken: SystemTime,
 }
 
-/// What a store does with a lock.
-pub(crate) trait Locks {
+impl Found {
+    /// The lock `holder` took at `taken`, which a remove compares by `tag`.
+    #[must_use]
+    pub const fn new(holder: String, tag: Vec<u8>, taken: SystemTime) -> Self {
+        Self { holder, tag, taken }
+    }
+}
+
+/// What a store does with a lock: `create`, `find`, `remove_if`, `revision`
+/// and `system`. A store implements them to hold the lock of a save through
+/// [`write_with_embedded`].
+pub trait Locks {
     /// Makes the lock at `lock` holding `guid` only when nothing is there:
     /// `false` when something is.
     fn create(
@@ -155,7 +171,11 @@ pub(crate) fn expired(found: &Found, now: SystemTime, settings: LockSettings) ->
 
 /// Removes each lock of `locks` that has expired, each only while it is still
 /// the lock found, and gives the paths of those it removed.
-pub(crate) async fn remove_expired<L>(
+///
+/// # Errors
+///
+/// The errors of `store`'s `find` and `remove_if`.
+pub async fn remove_expired<L>(
     store: &L,
     locks: &[StorePath],
     settings: LockSettings,
@@ -273,9 +293,17 @@ where
 }
 
 /// What `Store::write_with_embedded` does in the file store and the bucket
-/// stores: `write_at_paths` under the lock of `path`, which it takes, tests the
-/// precondition under, checks before each file and gives back after the document.
-pub(crate) async fn write_with_embedded<S>(
+/// stores, under the lock of `path`.
+///
+/// It takes the lock, tests `precondition` under it, writes each file of
+/// `files` at its path, then `text` at `path` under `precondition`, checks the
+/// lock before each write, and gives it back after the document.
+///
+/// # Errors
+///
+/// `StoreError::Conflict` when `precondition` does not hold or another save
+/// holds the lock, and the errors of `store`'s writes.
+pub async fn write_with_embedded<S>(
     store: &S,
     path: &StorePath,
     text: &str,

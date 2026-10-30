@@ -18,7 +18,10 @@ use os_shim::{System, WriteMode};
 use sha2::{Digest as _, Sha256};
 
 use crate::lock::{self, Found, LockSettings, Locks};
-use crate::{Capabilities, Precondition, Revision, Store, StoreError, StorePath, Stored};
+use crate::{
+    Capabilities, Precondition, Revision, Store, StoreError, StorePath, Stored, no_container,
+    no_deletions,
+};
 
 /// The count in a temporary name, shared by every store in the process.
 static WRITES: AtomicU64 = AtomicU64::new(0);
@@ -223,28 +226,6 @@ impl<'system> FileStore<'system> {
         Ok(Stored { bytes, revision })
     }
 
-    /// Removes each expired lock under `under` (the whole store when `None`),
-    /// each one only while it is still the lock found, and gives the path of
-    /// each lock it removed, sorted.
-    ///
-    /// It clears the locks left behind by saves that stopped. Only files whose
-    /// names end with [`lock::SUFFIX`] count as locks, and a lock has expired
-    /// once it is older than the store's [`LockSettings::expires`].
-    ///
-    /// # Errors
-    ///
-    /// `StoreError::Backend` when the store cannot be listed or a lock cannot
-    /// be read or removed, and `StoreError::InvalidPath` for a name under
-    /// `under` that is not a store path.
-    pub async fn remove_expired_locks(
-        &self,
-        under: Option<&StorePath>,
-    ) -> Result<Vec<StorePath>, StoreError> {
-        let mut locks = self.walk_files(under)?;
-        locks.retain(|path| path.as_str().ends_with(lock::SUFFIX));
-        lock::remove_expired(self, &locks, self.lock).await
-    }
-
     /// The store path of `file`, a file `walk_dir` found under the root.
     fn store_path(&self, file: &Path) -> Result<StorePath, StoreError> {
         let relative = file
@@ -365,6 +346,14 @@ impl Store for FileStore<'_> {
         future::ready(self.delete_file(path, precondition))
     }
 
+    fn ensure_container(&self) -> impl Future<Output = Result<(), StoreError>> + Send {
+        no_container()
+    }
+
+    fn finish_deletions(&self) -> impl Future<Output = Result<Vec<StorePath>, StoreError>> + Send {
+        no_deletions()
+    }
+
     /// Every file under `prefix`, sorted, with lock files left out, and hidden
     /// entries left out unless [`FileStore::listing`] lets them in.
     fn list(
@@ -384,6 +373,28 @@ impl Store for FileStore<'_> {
         file: &StorePath,
     ) -> impl Future<Output = Result<Vec<u8>, StoreError>> + Send {
         future::ready(self.read_embedded_file(file))
+    }
+
+    /// Removes each expired lock under `under` (the whole store when `None`),
+    /// each one only while it is still the lock found, and gives the path of
+    /// each lock it removed, sorted.
+    ///
+    /// It clears the locks left behind by saves that stopped. Only files whose
+    /// names end with [`lock::SUFFIX`] count as locks, and a lock has expired
+    /// once it is older than the store's [`LockSettings::expires`].
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::Backend` when the store cannot be listed or a lock cannot
+    /// be read or removed, and `StoreError::InvalidPath` for a name under
+    /// `under` that is not a store path.
+    async fn remove_expired_locks(
+        &self,
+        under: Option<&StorePath>,
+    ) -> Result<Vec<StorePath>, StoreError> {
+        let mut locks = self.walk_files(under)?;
+        locks.retain(|path| path.as_str().ends_with(lock::SUFFIX));
+        lock::remove_expired(self, &locks, self.lock).await
     }
 
     fn write(

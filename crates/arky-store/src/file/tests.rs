@@ -2,6 +2,7 @@
 //! temporary folder.
 
 use alloc::collections::BTreeMap;
+use core::time::Duration;
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -363,4 +364,17 @@ async fn a_lock_is_a_file_holding_the_guid_and_one_that_is_not_text_never_names_
     assert!(store.remove_if(&lock, &unreadable).await.unwrap());
     assert!(store.find(&lock).await.unwrap().is_none());
     assert!(!store.remove_if(&lock, &unreadable).await.unwrap());
+}
+
+#[tokio::test]
+async fn remove_expired_locks_through_a_boxed_store_removes_an_expired_lock() {
+    let system = MemorySystem::new()
+        .with_file("/vault/a.md.arky-lock", b"a-guid")
+        .unwrap();
+    system.advance(Duration::from_secs(6)).unwrap();
+    let store: Box<dyn crate::DynStore + '_> =
+        Box::new(FileStore::new(PathBuf::from("/vault"), &system));
+    let lock = lock_of(&StorePath::new("a.md").unwrap()).unwrap();
+    assert_eq!(store.remove_expired_locks(None).await, Ok(vec![lock]));
+    assert!(!system.exists(Path::new("/vault/a.md.arky-lock")).unwrap());
 }

@@ -411,6 +411,7 @@ pub mod mongo;
 pub mod object;
 
 use alloc::collections::BTreeMap;
+use core::pin::Pin;
 use core::{fmt, future};
 
 /// A file's place in a store: parts joined by `/`, none empty, none `.` or
@@ -496,12 +497,24 @@ impl fmt::Display for StorePath {
 /// Its text is the store's own: `sha256:` and the hex SHA-256 of the bytes in
 /// the file store, the object's `ETag` as the bucket gives it in the bucket
 /// stores, and the hash of the document's text and its files in the `MongoDB`
-/// store. Compare revisions of one store only. Code outside this crate cannot
-/// build one: it gets one from [`Store::read`] or [`Store::write`], and passes
-/// it back in [`Precondition::Matches`].
+/// store. Compare revisions of one store only. A store builds one with
+/// [`Revision::new`]; a caller gets one from [`Store::read`] or
+/// [`Store::write`] and passes it back in [`Precondition::Matches`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Revision(pub String);
+
+impl Revision {
+    /// A revision holding the store's own text, such as an entity tag or a
+    /// hash. Compare revisions of one store only.
+    #[must_use]
+    pub fn new<T>(text: T) -> Self
+    where
+        T: Into<String>,
+    {
+        Self(text.into())
+    }
+}
 
 /// A file as [`Store::read`] gives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -511,6 +524,14 @@ pub struct Stored {
     pub bytes: Vec<u8>,
     /// The revision to pass back in [`Precondition::Matches`].
     pub revision: Revision,
+}
+
+impl Stored {
+    /// A file's bytes and their revision, as [`Store::read`] gives them.
+    #[must_use]
+    pub const fn new(bytes: Vec<u8>, revision: Revision) -> Self {
+        Self { bytes, revision }
+    }
 }
 
 /// What must hold for a write or a delete to go ahead.
@@ -549,8 +570,8 @@ pub enum StoreError {
     /// No file is at the path.
     #[error("{0}: no file at this path")]
     NotFound(StorePath),
-    /// An operation the store cannot do. None of this crate's stores returns
-    /// it.
+    /// An operation this store does not have, such as `remove_expired_locks`
+    /// on the `MongoDB` store.
     #[error("this store cannot {0}")]
     Unsupported(&'static str),
 }
@@ -565,15 +586,26 @@ pub struct Capabilities {
     pub atomic_preconditions: bool,
 }
 
+impl Capabilities {
+    /// What a store can do: whether it checks a precondition and writes in
+    /// one step.
+    #[must_use]
+    pub const fn new(atomic_preconditions: bool) -> Self {
+        Self {
+            atomic_preconditions,
+        }
+    }
+}
+
 /// Where documents and the files they embed are kept: files read, written,
 /// deleted and listed by [`StorePath`].
 ///
 /// Each method returns a future that is `Send`. [`file::FileStore`] is always
 /// here, `object::ObjectStore` with the `minio` feature or the `s3` feature,
 /// `mongo::MongoStore` with the `mongodb` feature, and [`any::AnyStore`] holds
-/// any of them. Code outside this crate cannot build a [`Revision`], a
-/// [`Stored`] or a [`Capabilities`], so it implements `Store` only by passing
-/// each call on to one of these stores.
+/// any of them. A type outside this crate implements `Store` with
+/// [`Revision::new`], [`Stored::new`] and [`Capabilities::new`], and holds the
+/// save lock through [`lock`].
 pub trait Store {
     /// What this store can do that not every store can.
     fn capabilities(&self) -> Capabilities;
@@ -592,6 +624,19 @@ pub trait Store {
         path: &StorePath,
         precondition: &Precondition,
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Creates the place this store keeps its files when it is missing, such
+    /// as a bucket. By default, `StoreError::Unsupported`: the store has none.
+    fn ensure_container(&self) -> impl Future<Output = Result<(), StoreError>> + Send {
+        no_container()
+    }
+
+    /// Finishes each deletion of an embedded file that stopped halfway, and
+    /// gives the path of each object it deleted. By default,
+    /// `StoreError::Unsupported`: the store keeps no deletions.
+    fn finish_deletions(&self) -> impl Future<Output = Result<Vec<StorePath>, StoreError>> + Send {
+        no_deletions()
+    }
 
     /// Every file under `prefix`, or under the root with no prefix, at any
     /// depth, in byte order of their paths.
@@ -632,6 +677,16 @@ pub trait Store {
         Self: Sync,
     {
         read_at_path(self, file)
+    }
+
+    /// Removes each expired lock under `under`, the whole store when `None`,
+    /// and gives the path of each lock removed. By default,
+    /// `StoreError::Unsupported`: the store keeps no locks.
+    fn remove_expired_locks(
+        &self,
+        _under: Option<&StorePath>,
+    ) -> impl Future<Output = Result<Vec<StorePath>, StoreError>> + Send {
+        no_locks()
     }
 
     /// Writes `bytes` whole: a reader sees the old file or the new one, never a
@@ -678,6 +733,238 @@ pub trait Store {
             future::ready(Ok(()))
         })
     }
+}
+
+/// A future a [`DynStore`] gives.
+pub type BoxFuture<'future, T> = Pin<Box<dyn Future<Output = T> + Send + 'future>>;
+
+/// [`Store`] as a trait object: the same operations, each returning a boxed
+/// future, so a program can hold whichever store it opened in a
+/// `Box<dyn DynStore>`. Every `Store` that is `Send + Sync` is one.
+pub trait DynStore: Send + Sync {
+    /// As [`Store::capabilities`].
+    fn capabilities(&self) -> Capabilities;
+
+    /// As [`Store::delete`].
+    fn delete<'call>(
+        &'call self,
+        path: &'call StorePath,
+        precondition: &'call Precondition,
+    ) -> BoxFuture<'call, Result<(), StoreError>>;
+
+    /// As [`Store::ensure_container`].
+    fn ensure_container(&self) -> BoxFuture<'_, Result<(), StoreError>>;
+
+    /// As [`Store::finish_deletions`].
+    fn finish_deletions(&self) -> BoxFuture<'_, Result<Vec<StorePath>, StoreError>>;
+
+    /// As [`Store::list`].
+    fn list<'call>(
+        &'call self,
+        prefix: Option<&'call StorePath>,
+    ) -> BoxFuture<'call, Result<Vec<StorePath>, StoreError>>;
+
+    /// As [`Store::read`].
+    fn read<'call>(
+        &'call self,
+        path: &'call StorePath,
+    ) -> BoxFuture<'call, Result<Stored, StoreError>>;
+
+    /// As [`Store::read_embedded`].
+    fn read_embedded<'call>(
+        &'call self,
+        document: &'call StorePath,
+        file: &'call StorePath,
+    ) -> BoxFuture<'call, Result<Vec<u8>, StoreError>>;
+
+    /// As [`Store::remove_expired_locks`].
+    fn remove_expired_locks<'call>(
+        &'call self,
+        under: Option<&'call StorePath>,
+    ) -> BoxFuture<'call, Result<Vec<StorePath>, StoreError>>;
+
+    /// As [`Store::write`].
+    fn write<'call>(
+        &'call self,
+        path: &'call StorePath,
+        bytes: &'call [u8],
+        precondition: &'call Precondition,
+    ) -> BoxFuture<'call, Result<Revision, StoreError>>;
+
+    /// As [`Store::write_with_embedded`].
+    fn write_with_embedded<'call>(
+        &'call self,
+        path: &'call StorePath,
+        text: &'call str,
+        files: &'call BTreeMap<StorePath, Vec<u8>>,
+        precondition: &'call Precondition,
+    ) -> BoxFuture<'call, Result<Revision, StoreError>>;
+}
+
+impl<S: Store + Send + Sync> DynStore for S {
+    fn capabilities(&self) -> Capabilities {
+        Store::capabilities(self)
+    }
+
+    fn delete<'call>(
+        &'call self,
+        path: &'call StorePath,
+        precondition: &'call Precondition,
+    ) -> BoxFuture<'call, Result<(), StoreError>> {
+        Box::pin(Store::delete(self, path, precondition))
+    }
+
+    fn ensure_container(&self) -> BoxFuture<'_, Result<(), StoreError>> {
+        Box::pin(Store::ensure_container(self))
+    }
+
+    fn finish_deletions(&self) -> BoxFuture<'_, Result<Vec<StorePath>, StoreError>> {
+        Box::pin(Store::finish_deletions(self))
+    }
+
+    fn list<'call>(
+        &'call self,
+        prefix: Option<&'call StorePath>,
+    ) -> BoxFuture<'call, Result<Vec<StorePath>, StoreError>> {
+        Box::pin(Store::list(self, prefix))
+    }
+
+    fn read<'call>(
+        &'call self,
+        path: &'call StorePath,
+    ) -> BoxFuture<'call, Result<Stored, StoreError>> {
+        Box::pin(Store::read(self, path))
+    }
+
+    fn read_embedded<'call>(
+        &'call self,
+        document: &'call StorePath,
+        file: &'call StorePath,
+    ) -> BoxFuture<'call, Result<Vec<u8>, StoreError>> {
+        Box::pin(Store::read_embedded(self, document, file))
+    }
+
+    fn remove_expired_locks<'call>(
+        &'call self,
+        under: Option<&'call StorePath>,
+    ) -> BoxFuture<'call, Result<Vec<StorePath>, StoreError>> {
+        Box::pin(Store::remove_expired_locks(self, under))
+    }
+
+    fn write<'call>(
+        &'call self,
+        path: &'call StorePath,
+        bytes: &'call [u8],
+        precondition: &'call Precondition,
+    ) -> BoxFuture<'call, Result<Revision, StoreError>> {
+        Box::pin(Store::write(self, path, bytes, precondition))
+    }
+
+    fn write_with_embedded<'call>(
+        &'call self,
+        path: &'call StorePath,
+        text: &'call str,
+        files: &'call BTreeMap<StorePath, Vec<u8>>,
+        precondition: &'call Precondition,
+    ) -> BoxFuture<'call, Result<Revision, StoreError>> {
+        Box::pin(Store::write_with_embedded(
+            self,
+            path,
+            text,
+            files,
+            precondition,
+        ))
+    }
+}
+
+/// A `dyn DynStore` is a `Store` again, so the document functions take it.
+///
+/// Each method awaits the boxed future in an `async` body: returned as it is,
+/// its one lifetime, shared by every reference of the call, is not one the
+/// trait's `impl Future` can name.
+impl Store for dyn DynStore + '_ {
+    fn capabilities(&self) -> Capabilities {
+        DynStore::capabilities(self)
+    }
+
+    async fn delete(
+        &self,
+        path: &StorePath,
+        precondition: &Precondition,
+    ) -> Result<(), StoreError> {
+        DynStore::delete(self, path, precondition).await
+    }
+
+    async fn ensure_container(&self) -> Result<(), StoreError> {
+        DynStore::ensure_container(self).await
+    }
+
+    async fn finish_deletions(&self) -> Result<Vec<StorePath>, StoreError> {
+        DynStore::finish_deletions(self).await
+    }
+
+    async fn list(&self, prefix: Option<&StorePath>) -> Result<Vec<StorePath>, StoreError> {
+        DynStore::list(self, prefix).await
+    }
+
+    async fn read(&self, path: &StorePath) -> Result<Stored, StoreError> {
+        DynStore::read(self, path).await
+    }
+
+    async fn read_embedded(
+        &self,
+        document: &StorePath,
+        file: &StorePath,
+    ) -> Result<Vec<u8>, StoreError>
+    where
+        Self: Sync,
+    {
+        DynStore::read_embedded(self, document, file).await
+    }
+
+    async fn remove_expired_locks(
+        &self,
+        under: Option<&StorePath>,
+    ) -> Result<Vec<StorePath>, StoreError> {
+        DynStore::remove_expired_locks(self, under).await
+    }
+
+    async fn write(
+        &self,
+        path: &StorePath,
+        bytes: &[u8],
+        precondition: &Precondition,
+    ) -> Result<Revision, StoreError> {
+        DynStore::write(self, path, bytes, precondition).await
+    }
+
+    async fn write_with_embedded(
+        &self,
+        path: &StorePath,
+        text: &str,
+        files: &BTreeMap<StorePath, Vec<u8>>,
+        precondition: &Precondition,
+    ) -> Result<Revision, StoreError>
+    where
+        Self: Sync,
+    {
+        DynStore::write_with_embedded(self, path, text, files, precondition).await
+    }
+}
+
+/// What `Store::ensure_container` does by default.
+pub(crate) fn no_container() -> future::Ready<Result<(), StoreError>> {
+    future::ready(Err(StoreError::Unsupported("create its container")))
+}
+
+/// What `Store::finish_deletions` does by default.
+pub(crate) fn no_deletions() -> future::Ready<Result<Vec<StorePath>, StoreError>> {
+    future::ready(Err(StoreError::Unsupported("finish deletions")))
+}
+
+/// What `Store::remove_expired_locks` does by default.
+pub(crate) fn no_locks() -> future::Ready<Result<Vec<StorePath>, StoreError>> {
+    future::ready(Err(StoreError::Unsupported("remove expired locks")))
 }
 
 /// What `Store::read_embedded` does by default: the bytes of the file at

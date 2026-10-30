@@ -19,7 +19,9 @@ use arky_store::document::{self, DocumentError};
 use arky_store::file::FileStore;
 use arky_store::lock::LockSettings;
 #[cfg(feature = "mongodb")]
-use arky_store::mongo::{MongoStore, object_path};
+use arky_store::mongo::MongoStore;
+#[cfg(any(feature = "minio", feature = "s3"))]
+use arky_store::object::EnsureBucket;
 #[cfg(any(feature = "minio", feature = "mongodb"))]
 use arky_store::object::ObjectConfig;
 #[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
@@ -345,7 +347,7 @@ async fn remove_locks<B>(
     path: Option<&Path>,
 ) -> Result<Vec<String>, Failure>
 where
-    B: Bucket,
+    B: Bucket + EnsureBucket,
 {
     let folder = path.map(as_written).transpose()?;
     let removed = store
@@ -382,8 +384,7 @@ async fn finish_deletions(
                 .finish_deletions()
                 .await
                 .map_err(|error| Failure::store(arg, &error))?;
-            for hash in finished {
-                let object = object_path(&hash).map_err(|error| Failure::store(arg, &error))?;
+            for object in finished {
                 writeln!(stdout, "{object}")
                     .map_err(|error| Failure::stream("standard output", &error))?;
             }
