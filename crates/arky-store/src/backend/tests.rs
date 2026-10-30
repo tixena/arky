@@ -244,6 +244,27 @@ fn mongo_parsed(system: &MemorySystem, text: &str) -> Result<Mongo, StoreError> 
     mongodb::parse(text, context)
 }
 
+/// Asserts the `file:` string `text` splits into `container` and `inside`,
+/// and in a path argument from `/v/x` opens the store `container` names,
+/// where `inside` is the file `file`.
+async fn opens_in_a_path(text: &str, container: &str, inside: &str, file: &str) {
+    let split = FileBackend.split(text).unwrap();
+    assert_eq!(split, (container.to_owned(), inside.to_owned()));
+    let system = MemorySystem::new();
+    let backends = Backends::default();
+    let (store, at) = backends
+        .open_path(text, Path::new("/v/x"), LockSettings::default(), &system)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(at.as_str(), inside);
+    store
+        .write(&at, b"# A\n", &Precondition::Absent)
+        .await
+        .unwrap();
+    assert_eq!(system.read_to_string(Path::new(file)).unwrap(), "# A\n");
+}
+
 fn path(text: &str) -> StorePath {
     StorePath::new(text).unwrap()
 }
@@ -376,7 +397,7 @@ async fn no_error_message_shows_a_variable_s_value() {
         assert!(!message.contains(PASSWORD_ENCODED), "{message}");
     }
     let in_paths = [
-        "file:x/${MINIO_PASSWORD}/../a.md",
+        "file:x/${MINIO_PASSWORD}/a\\b.md",
         "file:${MINIO_PASSWORD}/a.md?${MINIO_PASSWORD}",
         #[cfg(feature = "s3")]
         "s3://acme/${MINIO_PASSWORD}/a.md",
@@ -450,6 +471,7 @@ fn a_file_string_in_a_path_splits_at_its_root_and_keeps_its_query_on_it() {
         ("file:///srv/notes/a.md", "file:///", "srv/notes/a.md"),
         ("file:/srv/notes/a.md", "file:///", "srv/notes/a.md"),
         ("file:my%20notes/a.md?x=1", "file:.?x=1", "my notes/a.md"),
+        ("file:../w/a.md?x=1", "file:..?x=1", "w/a.md"),
     ];
     for (text, container, inside) in splits {
         let split = FileBackend.split(text).unwrap();
@@ -490,6 +512,63 @@ async fn a_file_string_in_a_path_names_the_root_folder_and_the_path_inside_it() 
 }
 
 #[tokio::test]
+async fn a_relative_file_string_in_a_path_roots_at_the_base_folder() {
+    opens_in_a_path("file:notes/a.md", "file:.", "notes/a.md", "/v/x/notes/a.md").await;
+}
+
+#[tokio::test]
+async fn a_file_string_in_a_path_drops_the_dot_it_starts_with() {
+    opens_in_a_path(
+        "file:./notes/a.md",
+        "file:.",
+        "notes/a.md",
+        "/v/x/notes/a.md",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_file_string_in_a_path_puts_the_dot_dot_it_starts_with_in_its_store() {
+    opens_in_a_path("file:../w/a.md", "file:..", "w/a.md", "/v/w/a.md").await;
+}
+
+#[tokio::test]
+async fn a_file_string_in_a_path_puts_each_dot_dot_it_starts_with_in_its_store() {
+    opens_in_a_path("file:../../w/a.md", "file:../..", "w/a.md", "/w/a.md").await;
+}
+
+#[tokio::test]
+async fn a_dot_dot_inside_a_file_string_in_a_path_removes_the_part_before_it() {
+    opens_in_a_path("file:w/../x.md", "file:.", "x.md", "/v/x/x.md").await;
+}
+
+#[tokio::test]
+async fn an_absolute_file_string_in_a_path_roots_at_the_file_system_root() {
+    opens_in_a_path(
+        "file:///srv/notes/a.md",
+        "file:///",
+        "srv/notes/a.md",
+        "/srv/notes/a.md",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_dot_dot_inside_an_absolute_file_string_in_a_path_removes_the_part_before_it() {
+    opens_in_a_path("file:///srv/../a.md", "file:///", "a.md", "/a.md").await;
+}
+
+#[tokio::test]
+async fn an_absolute_file_string_in_a_path_drops_an_empty_part() {
+    opens_in_a_path("file:///srv//a.md", "file:///", "srv/a.md", "/srv/a.md").await;
+}
+
+#[tokio::test]
+async fn a_dot_dot_at_the_root_of_an_absolute_file_string_in_a_path_is_dropped() {
+    opens_in_a_path("file:///../a.md", "file:///", "a.md", "/a.md").await;
+}
+
+#[tokio::test]
 async fn a_store_string_in_a_path_with_nothing_after_its_container_is_an_invalid_store() {
     let system = MemorySystem::new();
     let backends = Backends::default();
@@ -500,7 +579,7 @@ async fn a_store_string_in_a_path_with_nothing_after_its_container_is_an_invalid
             "`{text}`: what follows the store is not a store path"
         )))
     };
-    for text in ["file:.", "file:///", "file:notes/../../a.md"] {
+    for text in ["file:.", "file:///", "file:..", "file:notes/.."] {
         let opened = backends.open_path(text, base, lock, &system).await;
         assert_eq!(opened.err(), refused(text), "{text}");
     }
