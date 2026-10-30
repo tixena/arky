@@ -44,7 +44,7 @@ use crate::mongo::record::{
     Claim, NO_DOCUMENT, StoredDocument, StoredObject, from_record, revision_of, to_record,
 };
 use crate::object::ObjectStore;
-use crate::{Capabilities, Precondition, Revision, Store, StoreError, StorePath, Stored};
+use crate::{Capabilities, Precondition, Revision, Store, StoreError, StorePath, Stored, no_locks};
 
 /// How many times a save tries to claim an object whose record a deletion
 /// holds.
@@ -240,34 +240,6 @@ impl<'system> MongoStore<'system> {
             found.push(from_record(record_of(records.current())?)?);
         }
         Ok(found)
-    }
-
-    /// Finishes each deletion that stopped after it marked its record: deletes
-    /// the object, then the record, and gives the SHA-256 of each, sorted.
-    ///
-    /// Until then, a save of a document that embeds the same bytes fails,
-    /// naming the deletion. [`object_path`] gives the path of each object
-    /// deleted. Run it only while nothing else writes to the store.
-    ///
-    /// # Errors
-    ///
-    /// `StoreError::Backend` when MongoDB or the bucket fails.
-    pub async fn finish_deletions(&self) -> Result<Vec<String>, StoreError> {
-        let held = StoredObject::MONGO_FIELDS
-            .deleting()
-            .eq(true)
-            .map_err(|error| backend(&error))?;
-        let records = StoredObject::find(&self.objects, held)
-            .await
-            .map_err(|error| backend(&error))?;
-        let mut finished = Vec::new();
-        for record in records {
-            self.remove_object(&record.id).await?;
-            self.remove_record(&record.id).await?;
-            finished.push(record.id);
-        }
-        finished.sort_unstable();
-        Ok(finished)
     }
 
     /// Takes back each claim on the document at `path` that `save` made, and
@@ -868,6 +840,39 @@ impl Store for MongoStore<'_> {
         self.tidy(path, &removed).await
     }
 
+    /// Creates the bucket of the store's files when it is missing.
+    fn ensure_container(&self) -> impl Future<Output = Result<(), StoreError>> + Send {
+        self.ensure_files_bucket()
+    }
+
+    /// Finishes each deletion that stopped after it marked its record: deletes
+    /// the object, then the record, and gives the path of each object, as
+    /// [`object_path`] gives it, sorted.
+    ///
+    /// Until then, a save of a document that embeds the same bytes fails,
+    /// naming the deletion. Run it only while nothing else writes to the store.
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::Backend` when MongoDB or the bucket fails.
+    async fn finish_deletions(&self) -> Result<Vec<StorePath>, StoreError> {
+        let held = StoredObject::MONGO_FIELDS
+            .deleting()
+            .eq(true)
+            .map_err(|error| backend(&error))?;
+        let records = StoredObject::find(&self.objects, held)
+            .await
+            .map_err(|error| backend(&error))?;
+        let mut finished = Vec::new();
+        for record in records {
+            self.remove_object(&record.id).await?;
+            self.remove_record(&record.id).await?;
+            finished.push(object_path(&record.id)?);
+        }
+        finished.sort_unstable();
+        Ok(finished)
+    }
+
     /// The path of every document under `prefix`, sorted. The files the
     /// documents embed are not listed.
     async fn list(&self, prefix: Option<&StorePath>) -> Result<Vec<StorePath>, StoreError> {
@@ -933,6 +938,13 @@ impl Store for MongoStore<'_> {
         file: &StorePath,
     ) -> impl Future<Output = Result<Vec<u8>, StoreError>> + Send {
         self.embedded_file(document, file)
+    }
+
+    fn remove_expired_locks(
+        &self,
+        _under: Option<&StorePath>,
+    ) -> impl Future<Output = Result<Vec<StorePath>, StoreError>> + Send {
+        no_locks()
     }
 
     /// Reads `bytes` as markdown and stores the tree through

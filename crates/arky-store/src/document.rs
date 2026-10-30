@@ -64,7 +64,7 @@ pub async fn get<S>(
     missing: Missing,
 ) -> Result<BundledDocument, DocumentError>
 where
-    S: Store + Sync,
+    S: Store + Sync + ?Sized,
 {
     let document = read_tree(store, path).await?;
     let mut files = BTreeMap::new();
@@ -197,7 +197,7 @@ pub async fn put<S>(
     missing: Missing,
 ) -> Result<Revision, DocumentError>
 where
-    S: Store + Sync,
+    S: Store + Sync + ?Sized,
 {
     let kept =
         stored(bytes, form, options, missing).map_err(|error| DocumentError::form(path, error))?;
@@ -228,7 +228,7 @@ pub async fn put_bundle<S>(
     precondition: &Precondition,
 ) -> Result<Revision, DocumentError>
 where
-    S: Store + Sync,
+    S: Store + Sync + ?Sized,
 {
     let text = writer::write(bundle.document(), options)
         .map_err(|error| DocumentError::form(path, EncodeError::from(error)))?;
@@ -277,7 +277,7 @@ pub(crate) fn parent_of(name: &str) -> &str {
 
 async fn read_tree<S>(store: &S, path: &StorePath) -> Result<RawDocument, DocumentError>
 where
-    S: Store + Sync,
+    S: Store + Sync + ?Sized,
 {
     let bytes = store.read(path).await?.bytes;
     let text = from_utf8(&bytes).map_err(|error| {

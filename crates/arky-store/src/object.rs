@@ -16,13 +16,14 @@
 
 use alloc::collections::BTreeMap;
 use core::fmt;
+use core::future;
 use core::str;
 use core::time::Duration;
 use std::env::VarError;
 use std::time::SystemTime;
 
 use os_shim::System;
-use os_shim::bucket::{Bucket, Condition, ObjectError, ObjectErrorKind};
+use os_shim::bucket::{Bucket, Condition, MemoryBucket, ObjectError, ObjectErrorKind};
 #[cfg(feature = "minio")]
 use os_shim::bucket::{MinioBucket, MinioConfig};
 #[cfg(feature = "s3")]
@@ -30,11 +31,22 @@ use os_shim::bucket::{S3Bucket, S3Config};
 
 use crate::lock::{self, Found, LockSettings, Locks};
 use crate::{
-    Capabilities, Precondition, Revision, Store, StoreError, StorePath, Stored, read_at_path,
+    Capabilities, Precondition, Revision, Store, StoreError, StorePath, Stored, no_deletions,
+    read_at_path,
 };
 
 /// The longest key S3 takes, in bytes.
 const LONGEST_KEY: usize = 1024;
+
+/// Creates a bucket when it is missing. A bucket that exists is left as it is.
+pub trait EnsureBucket {
+    /// Creates the bucket, encrypted with `kms_key_arn` where the bucket
+    /// supports it.
+    fn ensure_bucket(
+        &self,
+        kms_key_arn: Option<&str>,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+}
 
 /// Files in one bucket, under an optional key prefix.
 ///
@@ -73,6 +85,7 @@ const LONGEST_KEY: usize = 1024;
 /// ```
 pub struct ObjectStore<'system, B> {
     bucket: B,
+    kms_key_arn: Option<String>,
     lock: LockSettings,
     prefix: Option<StorePath>,
     system: &'system dyn System,
@@ -103,6 +116,15 @@ impl<'system, B: Bucket> ObjectStore<'system, B> {
         Ok(paths)
     }
 
+    /// The KMS key a bucket that `ensure_container` creates is encrypted with.
+    #[must_use]
+    pub fn encrypted_with(self, kms_key_arn: String) -> Self {
+        Self {
+            kms_key_arn: Some(kms_key_arn),
+            ..self
+        }
+    }
+
     /// The key of the object that holds the file at `path`.
     fn key(&self, path: &StorePath) -> String {
         self.prefix.as_ref().map_or_else(
@@ -129,47 +151,11 @@ impl<'system, B: Bucket> ObjectStore<'system, B> {
     pub fn new(bucket: B, prefix: Option<StorePath>, system: &'system dyn System) -> Self {
         Self {
             bucket,
+            kms_key_arn: None,
             lock: LockSettings::default(),
             prefix,
             system,
         }
-    }
-
-    /// Removes each expired lock under `under` (the whole store when `None`),
-    /// each one only while it is still the lock found, and gives the path of
-    /// each lock it removed, sorted.
-    ///
-    /// It clears the locks left behind by saves that stopped. Only objects whose
-    /// keys end with [`lock::SUFFIX`] count as locks, and a lock has expired
-    /// once it is older than the store's [`LockSettings::expires`].
-    ///
-    /// # Errors
-    ///
-    /// `StoreError::Backend` when the store cannot be listed or a lock cannot
-    /// be read or removed, and `StoreError::InvalidPath` for a key under
-    /// `under` that is not a store path.
-    pub async fn remove_expired_locks(
-        &self,
-        under: Option<&StorePath>,
-    ) -> Result<Vec<StorePath>, StoreError> {
-        let mut locks = self.all_paths(under).await?;
-        locks.retain(|path| path.as_str().ends_with(lock::SUFFIX));
-        lock::remove_expired(self, &locks, self.lock).await
-    }
-
-    /// `lock::write_with_embedded`, as the file store saves, once the key of
-    /// the lock of `path` fits: past `LONGEST_KEY` it is `InvalidPath` of `path`.
-    async fn write_locked(
-        &self,
-        path: &StorePath,
-        text: &str,
-        files: &BTreeMap<StorePath, Vec<u8>>,
-        precondition: &Precondition,
-    ) -> Result<Revision, StoreError> {
-        if self.key(&lock::lock_of(path)?).len() > LONGEST_KEY {
-            return Err(StoreError::InvalidPath(path.as_str().to_owned()));
-        }
-        lock::write_with_embedded(self, path, text, files, precondition, self.lock).await
     }
 }
 
@@ -390,7 +376,7 @@ impl<B: Bucket> Locks for ObjectStore<'_, B> {
     }
 }
 
-impl<B: Bucket> Store for ObjectStore<'_, B> {
+impl<B: Bucket + EnsureBucket> Store for ObjectStore<'_, B> {
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             atomic_preconditions: true,
@@ -410,6 +396,16 @@ impl<B: Bucket> Store for ObjectStore<'_, B> {
             .delete(&self.key(path), &condition(precondition))
             .await
             .map_err(|error| failure(path, &error))
+    }
+
+    /// Creates the store's bucket when it is missing, encrypted with the key
+    /// [`ObjectStore::encrypted_with`] names where the bucket supports it.
+    fn ensure_container(&self) -> impl Future<Output = Result<(), StoreError>> + Send {
+        self.bucket.ensure_bucket(self.kms_key_arn.as_deref())
+    }
+
+    fn finish_deletions(&self) -> impl Future<Output = Result<Vec<StorePath>, StoreError>> + Send {
+        no_deletions()
     }
 
     /// Every file under `prefix`, sorted, with lock objects left out. One key
@@ -439,6 +435,28 @@ impl<B: Bucket> Store for ObjectStore<'_, B> {
         file: &StorePath,
     ) -> impl Future<Output = Result<Vec<u8>, StoreError>> + Send {
         read_at_path(self, file)
+    }
+
+    /// Removes each expired lock under `under` (the whole store when `None`),
+    /// each one only while it is still the lock found, and gives the path of
+    /// each lock it removed, sorted.
+    ///
+    /// It clears the locks left behind by saves that stopped. Only objects whose
+    /// keys end with [`lock::SUFFIX`] count as locks, and a lock has expired
+    /// once it is older than the store's [`LockSettings::expires`].
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::Backend` when the store cannot be listed or a lock cannot
+    /// be read or removed, and `StoreError::InvalidPath` for a key under
+    /// `under` that is not a store path.
+    async fn remove_expired_locks(
+        &self,
+        under: Option<&StorePath>,
+    ) -> Result<Vec<StorePath>, StoreError> {
+        let mut locks = self.all_paths(under).await?;
+        locks.retain(|path| path.as_str().ends_with(lock::SUFFIX));
+        lock::remove_expired(self, &locks, self.lock).await
     }
 
     /// Puts `bytes` at the key of `path` when `precondition` holds, and gives
@@ -482,7 +500,36 @@ impl<B: Bucket> Store for ObjectStore<'_, B> {
         files: &BTreeMap<StorePath, Vec<u8>>,
         precondition: &Precondition,
     ) -> impl Future<Output = Result<Revision, StoreError>> + Send {
-        self.write_locked(path, text, files, precondition)
+        write_locked(self, path, text, files, precondition)
+    }
+}
+
+/// The bucket in memory has nothing to create.
+impl EnsureBucket for MemoryBucket {
+    fn ensure_bucket(
+        &self,
+        _kms_key_arn: Option<&str>,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send {
+        future::ready(Ok(()))
+    }
+}
+
+/// A `MinIO` bucket takes no KMS key, so `kms_key_arn` is not used.
+#[cfg(feature = "minio")]
+impl EnsureBucket for MinioBucket {
+    async fn ensure_bucket(&self, _kms_key_arn: Option<&str>) -> Result<(), StoreError> {
+        self.ensure()
+            .await
+            .map_err(|error| StoreError::Backend(error.to_string()))
+    }
+}
+
+#[cfg(feature = "s3")]
+impl EnsureBucket for S3Bucket {
+    async fn ensure_bucket(&self, kms_key_arn: Option<&str>) -> Result<(), StoreError> {
+        self.ensure(kms_key_arn)
+            .await
+            .map_err(|error| StoreError::Backend(error.to_string()))
     }
 }
 
@@ -618,6 +665,25 @@ fn variable(system: &dyn System, name: &str, holds: &str) -> Result<String, Stor
         };
         StoreError::Backend(format!("{name} {what}: it holds {holds}"))
     })
+}
+
+/// `lock::write_with_embedded` over `store`, as the file store saves, once the
+/// key of the lock of `path` fits: past `LONGEST_KEY` it is `InvalidPath` of
+/// `path`.
+async fn write_locked<B>(
+    store: &ObjectStore<'_, B>,
+    path: &StorePath,
+    text: &str,
+    files: &BTreeMap<StorePath, Vec<u8>>,
+    precondition: &Precondition,
+) -> Result<Revision, StoreError>
+where
+    B: Bucket + EnsureBucket,
+{
+    if store.key(&lock::lock_of(path)?).len() > LONGEST_KEY {
+        return Err(StoreError::InvalidPath(path.as_str().to_owned()));
+    }
+    lock::write_with_embedded(store, path, text, files, precondition, store.lock).await
 }
 
 #[cfg(test)]

@@ -668,7 +668,10 @@ async fn finishes_a_stopped_deletion(store: &MongoStore<'_>, object_removed: boo
     let claiming = ObjectId::new();
     assert_eq!(store.try_claim(&new, logo, claiming).await, Ok(false));
 
-    assert_eq!(store.finish_deletions().await, Ok(vec![hash]));
+    assert_eq!(
+        store.finish_deletions().await,
+        Ok(vec![object_path(&hash).unwrap()])
+    );
     assert_eq!(object_record(store, PNG).await, None);
     assert_eq!(store.files.list(None).await, Ok(Vec::new()));
 
@@ -2033,6 +2036,18 @@ async fn finishing_a_deletion_stopped_after_its_object_was_removed_deletes_the_r
  {
     in_database("arky_test_finish_after_object", async |store| {
         finishes_a_stopped_deletion(&store, true).await;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn through_a_boxed_store_the_files_bucket_is_the_container_and_there_are_no_locks() {
+    in_database("arky_test_boxed_store", async |store| {
+        let boxed: Box<dyn crate::DynStore> = Box::new(store);
+        assert_eq!(boxed.ensure_container().await, Ok(()));
+        let no_locks = Err(StoreError::Unsupported("remove expired locks"));
+        assert_eq!(boxed.remove_expired_locks(None).await, no_locks);
+        assert_eq!(boxed.finish_deletions().await, Ok(Vec::new()));
     })
     .await;
 }

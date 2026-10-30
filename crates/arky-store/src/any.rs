@@ -137,6 +137,30 @@ impl Store for AnyStore<'_> {
         }
     }
 
+    async fn ensure_container(&self) -> Result<(), StoreError> {
+        match self {
+            Self::File(store) => Store::ensure_container(store).await,
+            #[cfg(feature = "minio")]
+            Self::Minio(store) => Store::ensure_container(store).await,
+            #[cfg(feature = "mongodb")]
+            Self::Mongo(store) => Store::ensure_container(store).await,
+            #[cfg(feature = "s3")]
+            Self::S3(store) => Store::ensure_container(store).await,
+        }
+    }
+
+    async fn finish_deletions(&self) -> Result<Vec<StorePath>, StoreError> {
+        match self {
+            Self::File(store) => Store::finish_deletions(store).await,
+            #[cfg(feature = "minio")]
+            Self::Minio(store) => Store::finish_deletions(store).await,
+            #[cfg(feature = "mongodb")]
+            Self::Mongo(store) => Store::finish_deletions(store).await,
+            #[cfg(feature = "s3")]
+            Self::S3(store) => Store::finish_deletions(store).await,
+        }
+    }
+
     async fn list(&self, prefix: Option<&StorePath>) -> Result<Vec<StorePath>, StoreError> {
         match self {
             Self::File(store) => store.list(prefix).await,
@@ -174,6 +198,21 @@ impl Store for AnyStore<'_> {
             Self::Mongo(store) => store.read_embedded(document, file).await,
             #[cfg(feature = "s3")]
             Self::S3(store) => store.read_embedded(document, file).await,
+        }
+    }
+
+    async fn remove_expired_locks(
+        &self,
+        under: Option<&StorePath>,
+    ) -> Result<Vec<StorePath>, StoreError> {
+        match self {
+            Self::File(store) => Store::remove_expired_locks(store, under).await,
+            #[cfg(feature = "minio")]
+            Self::Minio(store) => Store::remove_expired_locks(store, under).await,
+            #[cfg(feature = "mongodb")]
+            Self::Mongo(store) => Store::remove_expired_locks(store, under).await,
+            #[cfg(feature = "s3")]
+            Self::S3(store) => Store::remove_expired_locks(store, under).await,
         }
     }
 

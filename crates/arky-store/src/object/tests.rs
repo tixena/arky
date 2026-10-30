@@ -12,6 +12,7 @@ use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use core::future;
 use std::io;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use arky::bundle::{BundledDocument, Missing};
@@ -26,11 +27,12 @@ use os_shim::mock::MemorySystem;
 
 #[cfg(feature = "minio")]
 use super::ObjectConfig;
-use super::ObjectStore;
 #[cfg(feature = "s3")]
 use super::S3ObjectConfig;
+use super::{EnsureBucket, ObjectStore};
 use crate::any::AnyStore;
 use crate::document::{get, put};
+use crate::file::FileStore;
 use crate::lock::{Locks as _, lock_of};
 use crate::{Precondition, Revision, Store as _, StoreError, StorePath};
 
@@ -75,7 +77,17 @@ impl Bucket for DownBucket {
     }
 }
 
-/// A `MemoryBucket` that records each `get` and `head` it answers, with its key.
+impl EnsureBucket for DownBucket {
+    fn ensure_bucket(
+        &self,
+        _kms_key_arn: Option<&str>,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send {
+        future::ready(Err(StoreError::Backend("no answer".to_owned())))
+    }
+}
+
+/// A `MemoryBucket` that records each `get` and `head` it answers, with its
+/// key, and each `ensure_bucket`, with its KMS key.
 #[derive(Clone, Default)]
 struct Watched {
     bucket: MemoryBucket,
@@ -118,6 +130,19 @@ impl Bucket for Watched {
         condition: &Condition,
     ) -> impl Future<Output = Result<String, ObjectError>> + Send {
         self.bucket.put(key, bytes, condition)
+    }
+}
+
+impl EnsureBucket for Watched {
+    fn ensure_bucket(
+        &self,
+        kms_key_arn: Option<&str>,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send {
+        self.reads
+            .lock()
+            .unwrap()
+            .push(format!("ensure {kms_key_arn:?}"));
+        self.bucket.ensure_bucket(kms_key_arn)
     }
 }
 
@@ -634,4 +659,78 @@ async fn a_save_whose_lock_key_is_past_1024_bytes_fails_with_the_documents_path_
         .await;
     assert_eq!(unsent, refused);
     assert_eq!(memory.list("").await.unwrap(), [format!("vault/{longest}")]);
+}
+
+#[tokio::test]
+async fn a_document_goes_into_each_boxed_store_and_comes_back() {
+    let system = MemorySystem::new();
+    let stores: Vec<Box<dyn crate::DynStore + '_>> = vec![
+        Box::new(FileStore::new(PathBuf::from("/vault"), &system)),
+        Box::new(in_vault(&MemoryBucket::default(), &system)),
+    ];
+    let options = WriteOptions::default();
+    let files = BTreeMap::from([("media/logo.png".to_owned(), PNG.to_vec())]);
+    let bundle = BundledDocument::new(parse(REPORT).document, files, Missing::Refuse).unwrap();
+    let zip = encode(&bundle, Form::Zip, &options).unwrap();
+    let report = path("notes/report.md");
+    for store in &stores {
+        put(
+            store.as_ref(),
+            &report,
+            Form::Zip,
+            &zip,
+            &options,
+            &Precondition::Absent,
+            Missing::Refuse,
+        )
+        .await
+        .unwrap();
+        let back = get(store.as_ref(), &report, Missing::Refuse).await.unwrap();
+        assert_eq!(back, bundle);
+    }
+}
+
+#[tokio::test]
+async fn ensure_container_asks_the_bucket_for_the_key_the_store_is_encrypted_with() {
+    let system = MemorySystem::new();
+    let watched = Watched::default();
+    let arn = "arn:aws:kms:eu-west-1:111122223333:key/notes";
+    let plain = ObjectStore::new(watched.clone(), None, &system);
+    plain.ensure_container().await.unwrap();
+    let encrypted = ObjectStore::new(watched.clone(), None, &system).encrypted_with(arn.to_owned());
+    encrypted.ensure_container().await.unwrap();
+    assert_eq!(
+        watched.reads(),
+        ["ensure None", &format!("ensure Some({arn:?})")]
+    );
+}
+
+#[tokio::test]
+async fn through_a_boxed_store_a_bucket_in_memory_has_a_container_and_no_deletions() {
+    let system = MemorySystem::new();
+    let store: Box<dyn crate::DynStore + '_> =
+        Box::new(in_vault(&MemoryBucket::default(), &system));
+    assert_eq!(store.ensure_container().await, Ok(()));
+    let no_deletions = Err(StoreError::Unsupported("finish deletions"));
+    assert_eq!(store.finish_deletions().await, no_deletions);
+}
+
+#[tokio::test]
+async fn remove_expired_locks_through_a_boxed_store_removes_an_expired_lock_object() {
+    let taken = SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_700_000);
+    let system = MemorySystem::new().with_now(taken).unwrap();
+    let memory = MemoryBucket::default();
+    memory
+        .put(
+            "vault/a.md.arky-lock",
+            b"a-guid 1792700000",
+            &Condition::None,
+        )
+        .await
+        .unwrap();
+    system.advance(Duration::from_secs(6)).unwrap();
+    let store: Box<dyn crate::DynStore + '_> = Box::new(in_vault(&memory, &system));
+    let removed = store.remove_expired_locks(None).await;
+    assert_eq!(removed, Ok(vec![lock_of(&path("a.md")).unwrap()]));
+    assert_eq!(memory.list("").await.unwrap(), Vec::<String>::new());
 }
