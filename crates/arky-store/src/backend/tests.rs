@@ -84,6 +84,9 @@ url = "minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/arky-file
 [stores.notes]
 url = "file:notes"
 
+[stores.opt]
+url = "minio+http://k:s@127.0.0.1:9000/b?${MINIO_PASSWORD}=1"
+
 [stores.unset]
 url = "minio+http://k:${UNSET_SECRET}@127.0.0.1:9000/b"
 "#;
@@ -93,6 +96,10 @@ url = "minio+http://k:${UNSET_SECRET}@127.0.0.1:9000/b"
 struct MemoryBackend;
 
 impl Backend for MemoryBackend {
+    fn nested_options(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn open<'call, 'store>(
         &'store self,
         text: &'call str,
@@ -132,6 +139,10 @@ impl Backend for MemoryBackend {
 struct OverFile;
 
 impl Backend for OverFile {
+    fn nested_options(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn open<'call, 'store>(
         &'store self,
         _text: &'call str,
@@ -1356,6 +1367,89 @@ fn a_mongodb_string_keeps_its_host_list_and_reads_a_percent_encoded_files_string
 }
 
 #[cfg(feature = "mongodb")]
+#[test]
+fn a_variable_percent_encoded_inside_an_inline_files_string_is_replaced_in_that_string() {
+    let system = MemorySystem::new().with_env("SECRET", PASSWORD).unwrap();
+    let text = "mongodb://127.0.0.1:27017/notes/docs?files=minio%2Bhttp%3A%2F%2Fk%3A%24%7BSECRET%7D%40127.0.0.1%3A9000%2Fb";
+    let outer = expand(text, &system, true).unwrap();
+    assert_eq!(outer.text(), text);
+    let files = Minio {
+        bucket: "b".to_owned(),
+        endpoint: "http://127.0.0.1:9000".to_owned(),
+        keys: Some(Keys {
+            access: "k".to_owned(),
+            secret: PASSWORD.to_owned(),
+        }),
+        prefix: None,
+        region: "us-east-1".to_owned(),
+    };
+    assert_eq!(mongo_parsed(&system, outer.text()).unwrap().files, files);
+}
+
+#[cfg(feature = "mongodb")]
+#[tokio::test]
+async fn a_raw_variable_inside_an_inline_files_string_is_an_invalid_store_naming_the_string_as_written()
+ {
+    let system = MemorySystem::new().with_env("SECRET", PASSWORD).unwrap();
+    let backends = Backends::default();
+    let base = Path::new(BASE);
+    let lock = LockSettings::default();
+    let text = "mongodb://127.0.0.1:27017/notes/docs?files=minio%2Bhttp%3A%2F%2Fk%3A${SECRET}%40127.0.0.1%3A9000%2Fb";
+    let refused = StoreError::InvalidStore(format!(
+        "`{text}`: a variable inside files is written %24%7BNAME%7D, or name that store arky://<name>"
+    ));
+    let opened = backends.open(text, base, lock, &system).await.err();
+    let in_path = backends.open_path(text, base, lock, &system).await.err();
+    for error in [opened, in_path] {
+        assert_eq!(error.as_ref(), Some(&refused));
+        let message = error.unwrap().to_string();
+        assert!(!message.contains(PASSWORD), "{message}");
+        assert!(!message.contains(PASSWORD_ENCODED), "{message}");
+    }
+}
+
+#[cfg(feature = "mongodb")]
+#[tokio::test]
+async fn a_variable_in_an_option_name_of_a_files_string_is_named_never_shown() {
+    let system = saving(secrets(), SAVED_MEDIA);
+    let backends = saved_backends(&system, "/home/me");
+    let base = Path::new("/home/me");
+    let lock = LockSettings::default();
+    let refused = [
+        "mongodb://h/notes/docs?files=arky://opt",
+        "mongodb://h/notes/docs?files=minio%2Bhttp%3A%2F%2Fk%3As%40127.0.0.1%3A9000%2Fb%3F%24%7BMINIO_PASSWORD%7D%3D1",
+    ];
+    for text in refused {
+        let expected = StoreError::InvalidStore(format!(
+            "`{text}`: files: unknown option ${{MINIO_PASSWORD}}"
+        ));
+        let error = backends.open(text, base, lock, &system).await.err();
+        assert_eq!(error.as_ref(), Some(&expected), "{text}");
+        let message = error.unwrap().to_string();
+        assert!(message.contains("${MINIO_PASSWORD}"), "{message}");
+        assert!(!message.contains(PASSWORD), "{message}");
+        assert!(!message.contains(PASSWORD_ENCODED), "{message}");
+    }
+}
+
+#[test]
+fn only_the_mongodb_backend_takes_a_store_string_nested_in_an_option() {
+    let backends = Backends::default().with(SavedBackend::new(SavedStores::default()));
+    for scheme in ["arky", "file", "minio+http", "minio+https", "s3"] {
+        let nested = backends.answering(scheme).map(Backend::nested_options);
+        assert!(nested.is_none_or(<[&str]>::is_empty), "{scheme}");
+    }
+    for scheme in ["mongodb", "mongodb+srv"] {
+        let nested = backends.answering(scheme).map(Backend::nested_options);
+        let files = cfg!(feature = "mongodb").then_some(["files"].as_slice());
+        assert_eq!(nested, files, "{scheme}");
+    }
+    let none: &[&str] = &[];
+    assert_eq!(MemoryBackend.nested_options(), none);
+    assert_eq!(OverFile.nested_options(), none);
+}
+
+#[cfg(feature = "mongodb")]
 #[tokio::test]
 async fn a_folder_after_the_collection_is_a_folder_inside_the_store() {
     let system = saving(secrets(), SAVED_MEDIA);
@@ -1501,6 +1595,10 @@ async fn a_files_store_not_configured_is_not_configured_naming_the_string_and_fi
         ),
         (
             "mongodb://h/notes/docs?files=arky://unset",
+            "UNSET_SECRET is not set: `minio+http://k:${UNSET_SECRET}@127.0.0.1:9000/b` reads it",
+        ),
+        (
+            "mongodb://h/notes/docs?files=minio%2Bhttp%3A%2F%2Fk%3A%24%7BUNSET_SECRET%7D%40127.0.0.1%3A9000%2Fb",
             "UNSET_SECRET is not set: `minio+http://k:${UNSET_SECRET}@127.0.0.1:9000/b` reads it",
         ),
         (

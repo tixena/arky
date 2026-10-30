@@ -103,6 +103,10 @@ impl SavedBackend {
 }
 
 impl Backend for SavedBackend {
+    fn nested_options(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn open<'call, 'store>(
         &'store self,
         text: &'call str,

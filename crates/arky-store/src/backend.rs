@@ -128,6 +128,13 @@ impl fmt::Debug for Context<'_> {
 /// }
 /// ```
 pub trait Backend: Send + Sync {
+    /// The options whose value is a nested store string, such as `files`;
+    /// none by default. The registry refuses a `${` written in their value:
+    /// a variable there is written `%24%7BNAME%7D`.
+    fn nested_options(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// The store `text` names, its `${…}` variables already replaced. The
     /// backend parses `text` itself.
     ///
@@ -273,6 +280,7 @@ impl Backends {
         let Some(backend) = self.backend_of(text)? else {
             return Ok(file::plain(expand(text, system, false)?.text(), context));
         };
+        unnested(text, backend)?;
         let expanded = expand(text, system, true)?;
         backend
             .open(expanded.text(), context)
@@ -300,6 +308,7 @@ impl Backends {
         let Some(backend) = self.backend_of(text)? else {
             return Ok(None);
         };
+        unnested(text, backend)?;
         let expanded = expand(text, system, true)?;
         let (container, rest) = backend
             .split(expanded.text())
@@ -674,6 +683,25 @@ fn scheme_of(text: &str) -> Option<(&str, &str)> {
         character.is_ascii_lowercase() || character.is_ascii_digit() || "+.-".contains(character)
     });
     (starts && follows).then_some((scheme, rest))
+}
+
+/// Refuses `text`, as written, when the value of one of `backend`'s nested
+/// options holds a `${`: the expansion of `text` encodes its value once, and
+/// the nested store string would get it decoded.
+fn unnested(text: &str, backend: &dyn Backend) -> Result<(), StoreError> {
+    let Some((_, query)) = text.split_once('?') else {
+        return Ok(());
+    };
+    let nested = backend.nested_options();
+    query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|&(option, value)| nested.contains(&option) && value.contains("${"))
+        .map_or(Ok(()), |(option, _)| {
+            Err(StoreError::InvalidStore(format!(
+                "`{text}`: a variable inside {option} is written %24%7BNAME%7D, or name that store arky://<name>"
+            )))
+        })
 }
 
 #[cfg(test)]
