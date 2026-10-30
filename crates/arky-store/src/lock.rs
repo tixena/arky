@@ -1,5 +1,5 @@
-//! The lock a save holds on a document in the file store and the `MinIO`
-//! store.
+//! The lock a save holds on a document in the file store and the bucket
+//! stores.
 //!
 //! A save through [`Store::write_with_embedded`] takes the lock of the
 //! document, `<path>.arky-lock` beside it, and checks the precondition under
@@ -15,7 +15,7 @@
 //! once and looks again; a lock still there and not expired fails the save
 //! with [`StoreError::Conflict`], before it writes anything. A lock older than
 //! [`LockSettings::expires`] has expired: a save removes it and takes its own,
-//! and `remove_expired_locks` on the file store or the `MinIO` store removes
+//! and `remove_expired_locks` on the file store or a bucket store removes
 //! every one. A save that runs past `expires` fails with `Conflict` before its
 //! next write. A plain [`Store::write`] or [`Store::delete`] takes no lock,
 //! and the `MongoDB` store takes none at all.
@@ -272,8 +272,8 @@ where
     Err(StoreError::Conflict(path.clone()))
 }
 
-/// What `Store::write_with_embedded` does in the file store and the `MinIO`
-/// store: `write_at_paths` under the lock of `path`, which it takes, tests the
+/// What `Store::write_with_embedded` does in the file store and the bucket
+/// stores: `write_at_paths` under the lock of `path`, which it takes, tests the
 /// precondition under, checks before each file and gives back after the document.
 pub(crate) async fn write_with_embedded<S>(
     store: &S,

@@ -10,9 +10,9 @@
 //! process made in between. arky-store does that work. Each read gives a
 //! [`Revision`] and each write takes a [`Precondition`], so a save made from a
 //! stale read fails with [`StoreError::Conflict`]. In the file store and the
-//! `MinIO` store, a save of a note and its pictures holds a lock that expires,
-//! and both stores also run over os-shim's in-memory twins, so their tests
-//! need no disk, no server and no real clock.
+//! bucket stores (`MinIO` and AWS S3), a save of a note and its pictures holds
+//! a lock that expires, and these stores also run over os-shim's in-memory
+//! twins, so their tests need no disk, no server and no real clock.
 //!
 //! Use it beside [`arky`], which parses and writes the documents, when your
 //! program keeps markdown documents and wants one interface over a folder, a
@@ -25,11 +25,11 @@
 //! | [`FileStore`](file::FileStore) | Each file at its path under a root folder, through an os-shim `System`: the disk, or `MemorySystem` in tests. | none |
 #![cfg_attr(
     any(feature = "minio", feature = "s3"),
-    doc = "| [`ObjectStore`](object::ObjectStore) | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket` with `minio`, an AWS S3 bucket through `S3Bucket` with `s3`, or `MemoryBucket` in tests. `ensure` creates a missing bucket. | `minio` or `s3` |"
+    doc = "| [`ObjectStore`](object::ObjectStore) | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket` with `minio`, an AWS S3 bucket through `S3Bucket` with `s3`, or `MemoryBucket` in tests. The bucket stores are this store over `MinioBucket` and over `S3Bucket`. `ensure` creates a missing bucket. | `minio` or `s3` |"
 )]
 #![cfg_attr(
     not(any(feature = "minio", feature = "s3")),
-    doc = "| `ObjectStore` | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket` with `minio`, an AWS S3 bucket through `S3Bucket` with `s3`, or `MemoryBucket` in tests. `ensure` creates a missing bucket. | `minio` or `s3` |"
+    doc = "| `ObjectStore` | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket` with `minio`, an AWS S3 bucket through `S3Bucket` with `s3`, or `MemoryBucket` in tests. The bucket stores are this store over `MinioBucket` and over `S3Bucket`. `ensure` creates a missing bucket. | `minio` or `s3` |"
 )]
 #![cfg_attr(
     feature = "mongodb",
@@ -246,17 +246,18 @@
 //! }
 //! ```
 #![cfg_attr(
-    feature = "minio",
+    any(feature = "minio", feature = "s3"),
     doc = r##"
 ## A bucket, and the same bucket in memory in tests
 
 [`ObjectStore`](object::ObjectStore) keeps each file as an object under a key
 prefix: the file `posts/hello.md` under the prefix `blog` is the object
 `blog/posts/hello.md`. A precondition goes to the bucket with the write, so
-the check and the write are one step. In production,
-[`ObjectStore::open`](object::ObjectStore::open) builds the store over a
-`MinioBucket` from an [`ObjectConfig`](object::ObjectConfig), with its keys
-read from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. In a test,
+the check and the write are one step. In production, `ObjectStore::open`
+builds the store over a `MinioBucket` from an `ObjectConfig`, with its keys
+read from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. For an AWS S3
+bucket, `ObjectStore::open_s3` builds the store over an `S3Bucket` from an
+`S3ObjectConfig`, with the same two variables. In a test,
 [`ObjectStore::new`](object::ObjectStore::new) takes os-shim's `MemoryBucket`,
 which reaches no server.
 
@@ -375,7 +376,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! - A store keeps arky's form of what [`document::put`] gives it, not the
 //!   bytes: a round trip is not byte-exact. [`Store::write`] on the file store
-//!   and the `MinIO` store keeps the bytes as given.
+//!   and the bucket stores keeps the bytes as given.
 //! - The `MongoDB` store keeps the parsed tree and reads a document back in
 //!   arky's form: a valid frontmatter in YAML, whatever syntax it was written
 //!   in, and a frontmatter no entry of reads as it was written. A record nests
@@ -416,7 +417,7 @@ use core::{fmt, future};
 /// `..`, no `\`, with no `/` at either end.
 ///
 /// A store path is relative to the store: to the root folder of the file
-/// store, to the key prefix of the `MinIO` store. Paths sort in byte order,
+/// store, to the key prefix of a bucket store. Paths sort in byte order,
 /// the order [`Store::list`] gives them in.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StorePath(String);
@@ -493,8 +494,8 @@ impl fmt::Display for StorePath {
 /// waits for nothing else to have changed the file.
 ///
 /// Its text is the store's own: `sha256:` and the hex SHA-256 of the bytes in
-/// the file store, the object's `ETag` as the bucket gives it in the `MinIO`
-/// store, and the hash of the document's text and its files in the `MongoDB`
+/// the file store, the object's `ETag` as the bucket gives it in the bucket
+/// stores, and the hash of the document's text and its files in the `MongoDB`
 /// store. Compare revisions of one store only. Code outside this crate cannot
 /// build one: it gets one from [`Store::read`] or [`Store::write`], and passes
 /// it back in [`Precondition::Matches`].
@@ -595,7 +596,7 @@ pub trait Store {
     /// Every file under `prefix`, or under the root with no prefix, at any
     /// depth, in byte order of their paths.
     ///
-    /// The file store and the `MinIO` store leave lock files out. The `MongoDB`
+    /// The file store and the bucket stores leave lock files out. The `MongoDB`
     /// store lists documents only, not the files they embed.
     ///
     /// # Errors
@@ -656,7 +657,7 @@ pub trait Store {
     /// text under `precondition`; no file is deleted.
     ///
     /// `precondition` applies to the document only. The file store and the
-    /// `MinIO` store hold the document's lock for the whole save (see
+    /// bucket stores hold the document's lock for the whole save (see
     /// [`lock`]); the `MongoDB` store keeps each file once, by its SHA-256.
     ///
     /// # Errors
