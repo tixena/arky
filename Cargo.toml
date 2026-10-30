@@ -76,7 +76,7 @@ codegen-units = 1
 panic = "abort"
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(store_tests)"] }
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(store_tests)", "cfg(s3_tests)"] }
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }

@@ -1,10 +1,18 @@
 //! Files kept as objects in one bucket, through os-shim's `Bucket`.
 //!
-//! This module needs the `minio` feature. [`ObjectStore`] works over any
-//! os-shim [`Bucket`]: [`MinioBucket`] for a `MinIO` or other S3-compatible
-//! server, or [`MemoryBucket`](os_shim::bucket::MemoryBucket) in tests, which
-//! reaches no server. [`ObjectConfig`] says where a server's bucket is, and
-//! [`ObjectStore::open`] builds the store over it.
+//! This module needs the `minio` feature or the `s3` feature. [`ObjectStore`]
+//! works over any os-shim [`Bucket`]: `MinioBucket` for a `MinIO` or other
+//! S3-compatible server, `S3Bucket` for an AWS S3 bucket, or
+//! [`MemoryBucket`](os_shim::bucket::MemoryBucket) in tests, which reaches no
+//! server.
+#![cfg_attr(
+    feature = "minio",
+    doc = "\nWith `minio`, [`ObjectConfig`] says where a server's bucket is, and [`ObjectStore::open`] builds the store over it through [`MinioBucket`]."
+)]
+#![cfg_attr(
+    feature = "s3",
+    doc = "\nWith `s3`, [`S3ObjectConfig`] says where an AWS S3 bucket is, and [`ObjectStore::open_s3`] builds the store over it through [`S3Bucket`]."
+)]
 
 use alloc::collections::BTreeMap;
 use core::fmt;
@@ -14,7 +22,11 @@ use std::env::VarError;
 use std::time::SystemTime;
 
 use os_shim::System;
-use os_shim::bucket::{Bucket, Condition, MinioBucket, MinioConfig, ObjectError, ObjectErrorKind};
+use os_shim::bucket::{Bucket, Condition, ObjectError, ObjectErrorKind};
+#[cfg(feature = "minio")]
+use os_shim::bucket::{MinioBucket, MinioConfig};
+#[cfg(feature = "s3")]
+use os_shim::bucket::{S3Bucket, S3Config};
 
 use crate::lock::{self, Found, LockSettings, Locks};
 use crate::{
@@ -158,6 +170,7 @@ impl<'system, B: Bucket> ObjectStore<'system, B> {
     }
 }
 
+#[cfg(feature = "minio")]
 impl<'system> ObjectStore<'system, MinioBucket> {
     /// Creates the store's bucket when it does not exist, and leaves a bucket
     /// that exists as it is.
@@ -229,6 +242,68 @@ impl<'system> ObjectStore<'system, MinioBucket> {
             secret_key,
         );
         Ok(Self::new(MinioBucket::new(minio), config.prefix, system))
+    }
+}
+
+#[cfg(feature = "s3")]
+impl<'system> ObjectStore<'system, S3Bucket> {
+    /// Creates the store's bucket when it does not exist: private, in the
+    /// store's region, and encrypted by default with the KMS key
+    /// `kms_key_arn` when one is given. A bucket that exists is left as it is.
+    ///
+    /// The keys need the right to list the bucket, and to create it and set
+    /// its encryption when it is missing.
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::Backend` when AWS cannot be reached, or refuses to say
+    /// whether the bucket exists, to create it or to set its encryption.
+    pub async fn ensure(&self, kms_key_arn: Option<&str>) -> Result<(), StoreError> {
+        self.bucket
+            .ensure(kms_key_arn)
+            .await
+            .map_err(|error| StoreError::Backend(error.to_string()))
+    }
+
+    /// A store over the AWS S3 bucket `config` names, its keys read from the
+    /// environment.
+    ///
+    /// It reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` through
+    /// `system`, and sends no request. Run the store's futures on tokio.
+    ///
+    /// ```rust
+    /// use arky_store::StoreError;
+    /// use arky_store::object::{ObjectStore, S3ObjectConfig};
+    /// use os_shim::mock::MemorySystem;
+    ///
+    /// let config = S3ObjectConfig::new("eu-west-1".to_owned(), "notes".to_owned(), None);
+    /// let system = MemorySystem::new()
+    ///     .with_env("AWS_ACCESS_KEY_ID", "notes-app")?
+    ///     .with_env("AWS_SECRET_ACCESS_KEY", "a-secret")?;
+    /// assert!(ObjectStore::open_s3(&system, config.clone()).is_ok());
+    ///
+    /// assert_eq!(
+    ///     ObjectStore::open_s3(&MemorySystem::new(), config).err(),
+    ///     Some(StoreError::Backend(
+    ///         "AWS_ACCESS_KEY_ID is not set: it holds the AWS access key".to_owned()
+    ///     )),
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// `Backend` naming the variable and what it holds when `AWS_ACCESS_KEY_ID`
+    /// or `AWS_SECRET_ACCESS_KEY` is not set or is not UTF-8. The message
+    /// never shows the variable's value.
+    pub fn open_s3(
+        system: &'system dyn System,
+        config: S3ObjectConfig,
+    ) -> Result<Self, StoreError> {
+        let access_key = variable(system, "AWS_ACCESS_KEY_ID", "the AWS access key")?;
+        let secret_key = variable(system, "AWS_SECRET_ACCESS_KEY", "the AWS secret key")?;
+        let s3 = S3Config::new(config.region, config.bucket, access_key, secret_key);
+        Ok(Self::new(S3Bucket::new(s3), config.prefix, system))
     }
 }
 
@@ -410,6 +485,7 @@ impl<B: Bucket> Store for ObjectStore<'_, B> {
 
 /// Where the bucket is: the `MinIO` server, its region, the bucket, and the
 /// key prefix.
+#[cfg(feature = "minio")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ObjectConfig {
@@ -425,6 +501,7 @@ pub struct ObjectConfig {
     pub region: String,
 }
 
+#[cfg(feature = "minio")]
 impl ObjectConfig {
     /// The bucket `bucket` on the server at `endpoint` in `region`, its
     /// objects under `prefix`.
@@ -453,6 +530,48 @@ impl ObjectConfig {
         Self {
             bucket,
             endpoint,
+            prefix,
+            region,
+        }
+    }
+}
+
+/// Where an AWS S3 bucket is: its region, the bucket, and the key prefix.
+#[cfg(feature = "s3")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct S3ObjectConfig {
+    /// The bucket's name.
+    pub bucket: String,
+    /// The key prefix every object of the store sits under, or `None` for the
+    /// bucket's root.
+    pub prefix: Option<StorePath>,
+    /// The bucket's AWS region, such as `eu-west-1`.
+    pub region: String,
+}
+
+#[cfg(feature = "s3")]
+impl S3ObjectConfig {
+    /// The bucket `bucket` in the AWS region `region`, its objects under
+    /// `prefix`.
+    ///
+    /// ```rust
+    /// use arky_store::StorePath;
+    /// use arky_store::object::S3ObjectConfig;
+    ///
+    /// let config = S3ObjectConfig::new(
+    ///     "eu-west-1".to_owned(),
+    ///     "notes".to_owned(),
+    ///     Some(StorePath::new("vault")?),
+    /// );
+    /// assert_eq!(config.region, "eu-west-1");
+    /// assert_eq!(config.prefix, Some(StorePath::new("vault")?));
+    /// # Ok::<(), arky_store::StoreError>(())
+    /// ```
+    #[must_use]
+    pub const fn new(region: String, bucket: String, prefix: Option<StorePath>) -> Self {
+        Self {
+            bucket,
             prefix,
             region,
         }

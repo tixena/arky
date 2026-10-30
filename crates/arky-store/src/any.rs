@@ -8,11 +8,13 @@ use alloc::collections::BTreeMap;
 
 #[cfg(feature = "minio")]
 use os_shim::bucket::MinioBucket;
+#[cfg(feature = "s3")]
+use os_shim::bucket::S3Bucket;
 
 use crate::file::FileStore;
 #[cfg(feature = "mongodb")]
 use crate::mongo::MongoStore;
-#[cfg(feature = "minio")]
+#[cfg(any(feature = "minio", feature = "s3"))]
 use crate::object::ObjectStore;
 use crate::{Capabilities, Precondition, Revision, Store, StoreError, StorePath, Stored};
 
@@ -100,6 +102,10 @@ pub enum AnyStore<'system> {
     /// The `MongoDB` store. It needs the `mongodb` feature.
     #[cfg(feature = "mongodb")]
     Mongo(MongoStore<'system>),
+    /// The AWS S3 store, over a bucket in an AWS region. It needs the `s3`
+    /// feature.
+    #[cfg(feature = "s3")]
+    S3(ObjectStore<'system, S3Bucket>),
 }
 
 impl Store for AnyStore<'_> {
@@ -110,6 +116,8 @@ impl Store for AnyStore<'_> {
             Self::Minio(store) => store.capabilities(),
             #[cfg(feature = "mongodb")]
             Self::Mongo(store) => store.capabilities(),
+            #[cfg(feature = "s3")]
+            Self::S3(store) => store.capabilities(),
         }
     }
 
@@ -124,6 +132,8 @@ impl Store for AnyStore<'_> {
             Self::Minio(store) => store.delete(path, precondition).await,
             #[cfg(feature = "mongodb")]
             Self::Mongo(store) => store.delete(path, precondition).await,
+            #[cfg(feature = "s3")]
+            Self::S3(store) => store.delete(path, precondition).await,
         }
     }
 
@@ -134,6 +144,8 @@ impl Store for AnyStore<'_> {
             Self::Minio(store) => store.list(prefix).await,
             #[cfg(feature = "mongodb")]
             Self::Mongo(store) => store.list(prefix).await,
+            #[cfg(feature = "s3")]
+            Self::S3(store) => store.list(prefix).await,
         }
     }
 
@@ -144,6 +156,8 @@ impl Store for AnyStore<'_> {
             Self::Minio(store) => store.read(path).await,
             #[cfg(feature = "mongodb")]
             Self::Mongo(store) => store.read(path).await,
+            #[cfg(feature = "s3")]
+            Self::S3(store) => store.read(path).await,
         }
     }
 
@@ -158,6 +172,8 @@ impl Store for AnyStore<'_> {
             Self::Minio(store) => store.read_embedded(document, file).await,
             #[cfg(feature = "mongodb")]
             Self::Mongo(store) => store.read_embedded(document, file).await,
+            #[cfg(feature = "s3")]
+            Self::S3(store) => store.read_embedded(document, file).await,
         }
     }
 
@@ -173,6 +189,8 @@ impl Store for AnyStore<'_> {
             Self::Minio(store) => store.write(path, bytes, precondition).await,
             #[cfg(feature = "mongodb")]
             Self::Mongo(store) => store.write(path, bytes, precondition).await,
+            #[cfg(feature = "s3")]
+            Self::S3(store) => store.write(path, bytes, precondition).await,
         }
     }
 
@@ -197,6 +215,12 @@ impl Store for AnyStore<'_> {
             }
             #[cfg(feature = "mongodb")]
             Self::Mongo(store) => {
+                store
+                    .write_with_embedded(path, text, files, precondition)
+                    .await
+            }
+            #[cfg(feature = "s3")]
+            Self::S3(store) => {
                 store
                     .write_with_embedded(path, text, files, precondition)
                     .await

@@ -32,6 +32,8 @@ mongodb = [
 ]
 # The MinIO store: os-shim's MinIO client, and the Bucket trait it implements.
 minio = ["os-shim/minio", "os-shim/async"]
+# The AWS S3 store: os-shim's S3 client, and the Bucket trait it implements.
+s3 = ["os-shim/s3", "os-shim/async"]
 
 [dependencies]
 arky.workspace = true
