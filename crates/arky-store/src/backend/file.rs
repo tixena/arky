@@ -21,6 +21,10 @@ const SCHEME: &str = "file:";
 pub(super) struct FileBackend;
 
 impl Backend for FileBackend {
+    fn nested_options(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn open<'call, 'store>(
         &'store self,
         text: &'call str,

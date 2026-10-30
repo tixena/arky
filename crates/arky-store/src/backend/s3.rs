@@ -31,6 +31,10 @@ pub(super) struct S3 {
 pub(super) struct S3Backend;
 
 impl Backend for S3Backend {
+    fn nested_options(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn open<'call, 'store>(
         &'store self,
         text: &'call str,

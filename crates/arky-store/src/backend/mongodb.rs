@@ -2,10 +2,11 @@
 //! `mongodb[+srv]://[user:password@]host[:port][,host[:port]…]/<database>/<collection>[/<folder>]?files=…[&<driver option>…]`.
 //!
 //! `files` names the `MinIO` store that keeps the collection's files, as a
-//! `MinIO` store string written percent-encoded or as `arky://<name>`; the
-//! collection keeps them under `<database>/<collection>` of that store. Every
-//! other option goes to the driver as written. A folder after the collection
-//! is a folder inside the store.
+//! `MinIO` store string written percent-encoded, a `${NAME}` in it as
+//! `%24%7BNAME%7D`, or as `arky://<name>`; the collection keeps them under
+//! `<database>/<collection>` of that store. Every other option goes to the
+//! driver as written. A folder after the collection is a folder inside the
+//! store.
 
 use std::path::PathBuf;
 
@@ -54,6 +55,10 @@ struct Parts<'text> {
 }
 
 impl Backend for MongoBackend {
+    fn nested_options(&self) -> &'static [&'static str] {
+        &["files"]
+    }
+
     fn open<'call, 'store>(
         &'store self,
         text: &'call str,
@@ -102,13 +107,9 @@ fn files_of(text: &str, written: &str, context: Context<'_>) -> Result<Minio, St
             "files names {scheme}; a MongoDB store keeps its files in MinIO only"
         )));
     }
-    // Only a saved store string still holds its `${…}`: `text` was expanded.
-    let minio = if resolved == written {
-        minio::parse(&resolved)
-    } else {
-        expand(&resolved, context.system, true).and_then(|expanded| minio::parse(expanded.text()))
-    };
-    minio.map_err(|error| of_files(text, error))
+    expand(&resolved, context.system, true)
+        .and_then(|expanded| minio::parse(expanded.text()))
+        .map_err(|error| of_files(text, error))
 }
 
 /// The value of `pair` percent-decoded when it is the `files` option.
