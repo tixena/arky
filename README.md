@@ -85,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `MongoStore` | Each document as one MongoDB record whose frontmatter a query can name, and each embedded file once, by its SHA-256, in a MinIO bucket | `mongodb` |
 | `AnyStore` | Whichever of the three a program opened at run time | none; each variant needs its store's feature |
 
-`document::put_bundle` and `document::get` store and load a document together with each file it embeds. In the file store and the MinIO store, that save holds a lock that expires, so a save that crashed does not block the next one.
+`document::put_bundle` and `document::get` store and load a document together with each file it embeds. In the file store, the MinIO store and the S3 store, that save holds a lock that expires, so a save that crashed does not block the next one.
 
 ## The command line
 
@@ -120,6 +120,7 @@ A path with no store is a file on disk. `-s minio:<bucket>` or `-s s3:<bucket>`,
 |---|---|
 | `just all` | lint, the tests, and the store tests |
 | `just test-stores` | the store tests against MongoDB and RustFS servers in containers it starts and stops (needs docker) |
+| `just test-s3` | the S3 store tests against a real AWS bucket; needs `ARKY_TEST_S3_REGION`, `ARKY_TEST_S3_BUCKET`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` |
 
 ## License
 

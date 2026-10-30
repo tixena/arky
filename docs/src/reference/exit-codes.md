@@ -44,8 +44,8 @@ return one of six exit codes of their own.
 | 0 | Success. |
 | 1 | The document could not be read or written in the form: not UTF-8, not JSON, not this version of the binary form, or a value the frontmatter syntax cannot hold. Without `--allow-missing`, a file the document embeds that is missing, or an embed that leaves the document's folder. |
 | 2 | The command line is wrong: an unknown option, a missing path, a value an option does not take, `--embed` without `--output` or with a form other than markdown, or a path that cannot name a file, such as `/`. |
-| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARKY_MONGODB_URI` or `ARKY_MONGODB_BUCKET` for `--store mongodb:`, or `ARKY_MINIO_ENDPOINT` for `--store minio:`, or the store is not built into this arky. |
-| 4 | The store failed: a file system error, such as a folder that is not writable or a path that is a folder, a MongoDB or MinIO server that cannot be reached, or a MinIO server that refuses the keys. A failure to write standard output is code 4 too. |
+| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARKY_MONGODB_URI` or `ARKY_MONGODB_BUCKET` for `--store mongodb:`, `ARKY_MINIO_ENDPOINT` for `--store minio:`, or `ARKY_S3_REGION` for `--store s3:`, or the store is not built into this arky. |
+| 4 | The store failed: a file system error, such as a folder that is not writable or a path that is a folder, a MongoDB or MinIO server or AWS that cannot be reached, a MinIO server or AWS that refuses the keys, or one that refuses to create a missing bucket for `arky write`. A failure to write standard output is code 4 too. |
 | 6 | No file at the path. |
 
 For `arky write`, a failure to read standard input is code 4 too, and code 6 is

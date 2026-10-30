@@ -45,12 +45,12 @@ Thirteen environment variables are read:
 | `NO_COLOR` | Turns colored output off. |
 | `ARKY_MONGODB_URI` | The connection string of the MongoDB server, `mongodb://` or `mongodb+srv://`, with the server and its credentials, used by `arky get` and `arky write` with `--store mongodb:`, and by `arky asset finish-deletions`. |
 | `ARKY_MONGODB_BUCKET` | The MinIO bucket of a MongoDB store's files, `<bucket>` or `<bucket>/<prefix>`, used by `arky get` and `arky write` with `--store mongodb:`, and by `arky asset finish-deletions`. |
-| `ARKY_MINIO_ENDPOINT` | The address of the MinIO server, such as `http://127.0.0.1:9000`, used by `arky get` and `arky write` with `--store minio:` or `--store mongodb:`, and by `arky asset finish-deletions`. |
-| `ARKY_MINIO_REGION` | The region the MinIO server expects, such as `us-east-1`, used by `arky get` and `arky write` with `--store minio:` or `--store mongodb:`, and by `arky asset finish-deletions`. |
+| `ARKY_MINIO_ENDPOINT` | The address of the MinIO server, such as `http://127.0.0.1:9000`, used by `arky get`, `arky write` and `arky fix` with `--store minio:`, by `arky get` and `arky write` with `--store mongodb:`, and by `arky asset finish-deletions`. |
+| `ARKY_MINIO_REGION` | The region the MinIO server expects, such as `us-east-1`, used by `arky get`, `arky write` and `arky fix` with `--store minio:`, by `arky get` and `arky write` with `--store mongodb:`, and by `arky asset finish-deletions`. |
 | `ARKY_S3_REGION` | The AWS region of the bucket, such as `eu-west-1`, used by `arky get`, `arky write` and `arky fix` with `--store s3:`. |
 | `ARKY_S3_KMS_KEY_ARN` | The KMS key a bucket that `arky write --store s3:` creates is encrypted with by default. Optional; a bucket that exists is left as it is. |
-| `AWS_ACCESS_KEY_ID` | The access key every MinIO and S3 request is signed with, used by `arky get` and `arky write` with `--store minio:`, `--store s3:` or `--store mongodb:`, and by `arky asset finish-deletions`. |
-| `AWS_SECRET_ACCESS_KEY` | The secret key every MinIO and S3 request is signed with, used by `arky get` and `arky write` with `--store minio:`, `--store s3:` or `--store mongodb:`, and by `arky asset finish-deletions`. |
+| `AWS_ACCESS_KEY_ID` | The access key every MinIO and S3 request is signed with, used by `arky get`, `arky write` and `arky fix` with `--store minio:` or `--store s3:`, by `arky get` and `arky write` with `--store mongodb:`, and by `arky asset finish-deletions`. |
+| `AWS_SECRET_ACCESS_KEY` | The secret key every MinIO and S3 request is signed with, used by `arky get`, `arky write` and `arky fix` with `--store minio:` or `--store s3:`, by `arky get` and `arky write` with `--store mongodb:`, and by `arky asset finish-deletions`. |
 
 ## Output formats
 
