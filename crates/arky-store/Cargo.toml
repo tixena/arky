@@ -38,8 +38,10 @@ s3 = ["os-shim/s3", "os-shim/async"]
 [dependencies]
 arky.workspace = true
 os-shim = { workspace = true, features = ["async"] }
+percent-encoding.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+url.workspace = true
 uuid.workspace = true
 
 # The MongoDB layer, the driver and tokio's timer, under the mongodb feature

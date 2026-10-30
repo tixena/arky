@@ -354,8 +354,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! | Feature | What it turns on | What your manifest also needs |
 //! | --- | --- | --- |
-//! | `minio` | The `object` module and `AnyStore::Minio`. | `os-shim` with its `minio` feature, to name `MinioBucket` or `MemoryBucket`. |
-//! | `s3` | The `object` module and `AnyStore::S3`. | `os-shim` with its `s3` feature, to name `S3Bucket`. |
+//! | `minio` | The `object` module, `AnyStore::Minio`, and the `minio+http` and `minio+https` store strings of the `backend` module. | `os-shim` with its `minio` feature, to name `MinioBucket` or `MemoryBucket`. |
+//! | `s3` | The `object` module, `AnyStore::S3`, and the `s3` store strings of the `backend` module. | `os-shim` with its `s3` feature, to name `S3Bucket`. |
 //! | `mongodb` | The `mongo` module, `AnyStore::Mongo`, and `minio`. | `bson = { version = "3.1", features = ["serde"] }`, to write the filters `MongoStore::find` takes. A `MongoDB` server, and an S3-compatible server for the embedded files. |
 //! | `binary-format` | arky's `binary-format`, so `document::put` takes `Form::Binary`. | Nothing more. |
 //!
@@ -402,6 +402,7 @@ tixschema::decode_with_foundation!();
 tixschema::mongodb_foundation!();
 
 pub mod any;
+pub mod backend;
 pub mod config;
 pub mod document;
 pub mod file;
@@ -568,6 +569,10 @@ pub enum StoreError {
     /// an object key longer than 1024 bytes.
     #[error("`{0}` is not a store path")]
     InvalidPath(String),
+    /// A store string that does not parse, or that names an option or a part
+    /// its backend does not take: `` `s3://acme?regoin=eu-west-1`: unknown option regoin ``.
+    #[error("{0}")]
+    InvalidStore(String),
     /// A store that cannot be opened as configured: a variable it names is not
     /// set or not UTF-8, its backend is not built in, a saved store it names
     /// is not defined, or an arky.toml that does not read.
