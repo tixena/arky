@@ -17,12 +17,10 @@ const REPORT: &str = "# Report\n\n![Logo](media/logo.png)\n";
 /// The machine the store of these tests runs on.
 static MACHINE: RealSystem = RealSystem::new();
 
-/// `arky` run in `root`, with the region `just test-s3` names.
+/// `arky` run in `root`.
 fn arky(root: &Path) -> Command {
     let mut command = Command::cargo_bin("arky").unwrap();
-    command
-        .current_dir(root)
-        .env("ARKY_S3_REGION", env::var("ARKY_TEST_S3_REGION").unwrap());
+    command.current_dir(root);
     command
 }
 
@@ -33,7 +31,8 @@ fn a_document_with_a_picture_written_to_s3_reads_back_whole_and_fix_finds_no_loc
         .unwrap();
     let prefix = format!("arky-cli-tests/{}", since.as_nanos());
     let bucket = env::var("ARKY_TEST_S3_BUCKET").unwrap();
-    let store = format!("s3:{bucket}/{prefix}");
+    let region = env::var("ARKY_TEST_S3_REGION").unwrap();
+    let store = format!("s3://{bucket}/{prefix}?region={region}");
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let root = folder.path();
     fs::create_dir_all(root.join("draft/media")).unwrap();
@@ -66,11 +65,7 @@ fn a_document_with_a_picture_written_to_s3_reads_back_whole_and_fix_finds_no_loc
         .stderr(is_empty());
 
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
-    let config = S3ObjectConfig::new(
-        env::var("ARKY_TEST_S3_REGION").unwrap(),
-        bucket,
-        Some(StorePath::new(&prefix).unwrap()),
-    );
+    let config = S3ObjectConfig::new(region, bucket, Some(StorePath::new(&prefix).unwrap()));
     let objects = ObjectStore::open_s3(&MACHINE, config).unwrap();
     runtime.block_on(async {
         for path in objects.list(None).await.unwrap() {

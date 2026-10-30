@@ -67,13 +67,17 @@ fn pipe(root: &Path, name: &str, store: &str) {
     let written = Process::new(cargo_bin("arky"))
         .current_dir(root)
         .args(["write", name, "--store", store, "--allow-missing"])
-        .env("ARKY_MINIO_ENDPOINT", endpoint())
-        .env("ARKY_MINIO_REGION", REGION)
         .stdin(get.stdout.take().unwrap())
         .status()
         .unwrap();
     assert!(get.wait().unwrap().success(), "{name}");
     assert!(written.success(), "{name}");
+}
+
+/// The store string of `prefix` in the bucket `just test-stores` makes, its
+/// keys read from the environment.
+fn store(prefix: &str) -> String {
+    format!("minio+{}/{}/{prefix}", endpoint(), bucket())
 }
 
 #[test]
@@ -83,7 +87,7 @@ fn each_fixture_piped_into_rustfs_and_back_to_the_file_system_is_arkys_form() {
     let whole_bucket = ObjectStore::open(&MACHINE, config).unwrap();
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let root = folder.path();
-    let store = format!("minio:{}/{PREFIX}", bucket());
+    let store = store(PREFIX);
     // `obsidian_note.md` embeds a picture this folder does not hold.
     for (name, source) in fixtures() {
         let arky_form = write(&parse(&source).document, &WriteOptions::default()).unwrap();
@@ -96,8 +100,6 @@ fn each_fixture_piped_into_rustfs_and_back_to_the_file_system_is_arkys_form() {
             .unwrap()
             .current_dir(root)
             .args(["get", &name, "--store", &store, "--allow-missing"])
-            .env("ARKY_MINIO_ENDPOINT", endpoint())
-            .env("ARKY_MINIO_REGION", REGION)
             .assert()
             .success()
             .stdout(eq(arky_form.as_bytes()));
@@ -119,15 +121,13 @@ fn a_request_signed_with_a_wrong_secret_key_exits_4_without_showing_it() {
     let secret = "arky-binary-wrong-secret";
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let root = folder.path();
-    let store = format!("minio:{}/binary/wrong-secret", bucket());
-    let named = format!("arky: {store}: ");
+    let store = store("binary/wrong-secret");
+    let named = format!("arky: `{store}`: ");
     for (command, line) in [("get", "arky: a.md: "), ("write", named.as_str())] {
         let ran = Command::cargo_bin("arky")
             .unwrap()
             .current_dir(root)
             .args([command, "a.md", "--store", &store])
-            .env("ARKY_MINIO_ENDPOINT", endpoint())
-            .env("ARKY_MINIO_REGION", REGION)
             .env("AWS_SECRET_ACCESS_KEY", secret)
             .write_stdin(b"# A\n".as_slice())
             .assert()
@@ -144,22 +144,18 @@ fn a_request_signed_with_a_wrong_secret_key_exits_4_without_showing_it() {
 fn a_write_to_a_missing_bucket_creates_it_and_a_get_reads_the_document_back() {
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let root = folder.path();
-    let store = "minio:arky-cli-created/notes";
+    let store = format!("minio+{}/arky-cli-created/notes", endpoint());
     Command::cargo_bin("arky")
         .unwrap()
         .current_dir(root)
-        .args(["write", "a.md", "--store", store])
-        .env("ARKY_MINIO_ENDPOINT", endpoint())
-        .env("ARKY_MINIO_REGION", REGION)
+        .args(["write", "a.md", "--store", &store])
         .write_stdin(b"# A\n".as_slice())
         .assert()
         .success();
     Command::cargo_bin("arky")
         .unwrap()
         .current_dir(root)
-        .args(["get", "a.md", "--store", store])
-        .env("ARKY_MINIO_ENDPOINT", endpoint())
-        .env("ARKY_MINIO_REGION", REGION)
+        .args(["get", "a.md", "--store", &store])
         .assert()
         .success()
         .stdout(eq(b"# A\n".as_slice()));
@@ -187,13 +183,11 @@ fn fix_removes_the_expired_lock_object_under_a_path_and_leaves_the_fresh_one_and
             .unwrap();
     }
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
-    let store = format!("minio:{}/binary/fix", bucket());
+    let store = store("binary/fix");
     Command::cargo_bin("arky")
         .unwrap()
         .current_dir(folder.path())
         .args(["fix", "notes", "--store", &store])
-        .env("ARKY_MINIO_ENDPOINT", endpoint())
-        .env("ARKY_MINIO_REGION", REGION)
         .assert()
         .success()
         .stdout(eq("notes/old.md.arky-lock\n"))
@@ -211,4 +205,36 @@ fn fix_removes_the_expired_lock_object_under_a_path_and_leaves_the_fresh_one_and
         objects[1].1.as_bytes()
     );
     assert_eq!(read("Cargo.lock").unwrap().bytes, b"old");
+}
+
+#[test]
+fn a_folder_after_the_bucket_in_a_store_string_or_a_saved_name_is_a_folder_inside_it() {
+    let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+    let config = ObjectConfig::new(endpoint(), REGION.to_owned(), bucket(), None);
+    let whole_bucket = ObjectStore::open(&MACHINE, config).unwrap();
+    let key = StorePath::new("binary/folder/drafts/ideas.md").unwrap();
+    runtime
+        .block_on(whole_bucket.write(&key, b"# Ideas\n", &Precondition::None))
+        .unwrap();
+    let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let root = folder.path();
+    let saved = format!("[stores.bucket]\nurl = \"{}\"\n", store("binary/folder"));
+    fs::write(root.join("arky.toml"), saved).unwrap();
+    let in_store = store("binary/folder/drafts");
+    let in_path = format!("{}/ideas.md", store("binary/folder/drafts"));
+    for arguments in [
+        ["get", "ideas.md", "-s", in_store.as_str()].as_slice(),
+        ["get", "ideas.md", "-s", "arky://bucket/drafts"].as_slice(),
+        ["get", "drafts/ideas.md", "-s", "arky://bucket"].as_slice(),
+        ["get", "arky://bucket/drafts/ideas.md"].as_slice(),
+        ["get", in_path.as_str()].as_slice(),
+    ] {
+        Command::cargo_bin("arky")
+            .unwrap()
+            .current_dir(root)
+            .args(arguments)
+            .assert()
+            .success()
+            .stdout(eq(b"# Ideas\n".as_slice()));
+    }
 }
