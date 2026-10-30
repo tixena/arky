@@ -150,6 +150,15 @@ impl Locks for Script {
         future::ready(self.next(call, &self.removes))
     }
 
+    fn revision(
+        &self,
+        _path: &StorePath,
+    ) -> impl Future<Output = Result<Option<Revision>, StoreError>> + Send {
+        future::ready(Err(StoreError::Backend(
+            "no answer scripted for revision".to_owned(),
+        )))
+    }
+
     fn system(&self) -> &dyn System {
         &self.system
     }

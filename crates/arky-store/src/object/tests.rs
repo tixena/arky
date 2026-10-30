@@ -6,8 +6,10 @@
 mod server;
 
 use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
 use core::future;
 use std::io;
+use std::sync::Mutex;
 
 use arky::bundle::{BundledDocument, Missing};
 use arky::forms::{Form, encode};
@@ -16,7 +18,7 @@ use arky::writer::WriteOptions;
 use core::time::Duration;
 use std::time::SystemTime;
 
-use os_shim::bucket::{Bucket, Condition, MemoryBucket, Object, ObjectError};
+use os_shim::bucket::{Bucket, Condition, Head, MemoryBucket, Object, ObjectError};
 use os_shim::mock::MemorySystem;
 
 use super::{ObjectConfig, ObjectStore};
@@ -48,6 +50,10 @@ impl Bucket for DownBucket {
         future::ready(Err(down(key)))
     }
 
+    fn head(&self, key: &str) -> impl Future<Output = Result<Head, ObjectError>> + Send {
+        future::ready(Err(down(key)))
+    }
+
     fn list(&self, prefix: &str) -> impl Future<Output = Result<Vec<String>, ObjectError>> + Send {
         future::ready(Err(down(prefix)))
     }
@@ -59,6 +65,52 @@ impl Bucket for DownBucket {
         _condition: &Condition,
     ) -> impl Future<Output = Result<String, ObjectError>> + Send {
         future::ready(Err(down(key)))
+    }
+}
+
+/// A `MemoryBucket` that records each `get` and `head` it answers, with its key.
+#[derive(Clone, Default)]
+struct Watched {
+    bucket: MemoryBucket,
+    reads: Arc<Mutex<Vec<String>>>,
+}
+
+impl Watched {
+    fn reads(&self) -> Vec<String> {
+        self.reads.lock().unwrap().clone()
+    }
+}
+
+impl Bucket for Watched {
+    fn delete(
+        &self,
+        key: &str,
+        condition: &Condition,
+    ) -> impl Future<Output = Result<(), ObjectError>> + Send {
+        self.bucket.delete(key, condition)
+    }
+
+    fn get(&self, key: &str) -> impl Future<Output = Result<Object, ObjectError>> + Send {
+        self.reads.lock().unwrap().push(format!("get {key}"));
+        self.bucket.get(key)
+    }
+
+    fn head(&self, key: &str) -> impl Future<Output = Result<Head, ObjectError>> + Send {
+        self.reads.lock().unwrap().push(format!("head {key}"));
+        self.bucket.head(key)
+    }
+
+    fn list(&self, prefix: &str) -> impl Future<Output = Result<Vec<String>, ObjectError>> + Send {
+        self.bucket.list(prefix)
+    }
+
+    fn put(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Condition,
+    ) -> impl Future<Output = Result<String, ObjectError>> + Send {
+        self.bucket.put(key, bytes, condition)
     }
 }
 
@@ -380,6 +432,34 @@ async fn a_put_keeps_each_embedded_file_as_an_object_beside_the_document_that_a_
         .bytes;
     assert_eq!(logo, PNG);
     assert_eq!(get(&store, &report, Missing::Refuse).await.unwrap(), bundle);
+}
+
+#[tokio::test]
+async fn a_save_under_a_precondition_reads_the_documents_tag_and_not_its_bytes() {
+    let system = MemorySystem::new();
+    let watched = Watched::default();
+    let store = ObjectStore::new(watched.clone(), Some(path("vault")), &system);
+    let report = path("notes/report.md");
+    let files = BTreeMap::new();
+    let first = store
+        .write_with_embedded(&report, REPORT, &files, &Precondition::Absent)
+        .await
+        .unwrap();
+    let stale = Precondition::Matches(Revision("\"stale\"".to_owned()));
+    let refused = store
+        .write_with_embedded(&report, "# Stale\n", &files, &stale)
+        .await;
+    assert_eq!(refused, Err(StoreError::Conflict(report.clone())));
+    store
+        .write_with_embedded(&report, "# Next\n", &files, &Precondition::Matches(first))
+        .await
+        .unwrap();
+    let of_report: Vec<String> = watched
+        .reads()
+        .into_iter()
+        .filter(|read| read.ends_with("/report.md"))
+        .collect();
+    assert_eq!(of_report, ["head vault/notes/report.md"; 3]);
 }
 
 #[test]

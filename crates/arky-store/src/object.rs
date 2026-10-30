@@ -279,6 +279,15 @@ impl<B: Bucket> Locks for ObjectStore<'_, B> {
         }
     }
 
+    /// The object's `ETag`, from a request that sends no bytes back.
+    async fn revision(&self, path: &StorePath) -> Result<Option<Revision>, StoreError> {
+        match self.bucket.head(&self.key(path)).await {
+            Ok(head) => Ok(Some(Revision(head.etag))),
+            Err(error) if error.kind() == ObjectErrorKind::NotFound => Ok(None),
+            Err(error) => Err(failure(path, &error)),
+        }
+    }
+
     fn system(&self) -> &dyn System {
         self.system
     }
