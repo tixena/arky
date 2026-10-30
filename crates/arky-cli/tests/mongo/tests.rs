@@ -61,11 +61,11 @@ static MACHINE: RealSystem = RealSystem::new();
 
 /// Runs the binary in `root` with `arguments`.
 fn arky_in(root: &Path, arguments: &[&str]) -> Assert {
-    Command::cargo_bin("arky")
-        .unwrap()
+    let mut process = Process::new(cargo_bin("arky"));
+    isolated(&mut process, root)
         .current_dir(root)
-        .args(arguments)
-        .assert()
+        .args(arguments);
+    Command::from_std(process).assert()
 }
 
 /// The bucket `just test-stores` makes.
@@ -108,6 +108,15 @@ fn fixtures() -> Vec<(String, String)> {
     files
 }
 
+/// `command` cut off from the machine's configuration: no `ARKY_STORE`, and
+/// `ARKY_CONFIG` naming an empty `arky.toml` in `folder`, so no `arky.toml`
+/// above the test's folder is read.
+fn isolated<'command>(command: &'command mut Process, folder: &Path) -> &'command mut Process {
+    let config = folder.join("isolated-arky.toml");
+    fs::write(&config, "").unwrap();
+    command.env_remove("ARKY_STORE").env("ARKY_CONFIG", &config)
+}
+
 /// arky's form of `source` as the MongoDB store keeps it, an offset written
 /// as UTC: put at `name` in `expected` and got back, through the library.
 fn kept_by_mongodb(
@@ -138,13 +147,13 @@ fn kept_by_mongodb(
 /// Runs `arky get name` in `root` piped into `arky write name --store
 /// store`, both with `--allow-missing`, and asserts both runs succeeded.
 fn pipe(root: &Path, name: &str, store: &str) {
-    let mut get = Process::new(cargo_bin("arky"))
+    let mut get = isolated(&mut Process::new(cargo_bin("arky")), root)
         .current_dir(root)
         .args(["get", name, "--allow-missing"])
         .stdout(Stdio::piped())
         .spawn()
         .unwrap();
-    let written = Process::new(cargo_bin("arky"))
+    let written = isolated(&mut Process::new(cargo_bin("arky")), root)
         .current_dir(root)
         .args(["write", name, "--store", store, "--allow-missing"])
         .stdin(get.stdout.take().unwrap())
@@ -183,11 +192,7 @@ fn each_fixture_piped_into_mongodb_and_read_back_is_arkys_form_as_mongodb_keeps_
         fs::write(root.join(&name), &source).unwrap();
         pipe(root, &name, &store);
         let kept = kept_by_mongodb(&runtime, &expected, &name, &source);
-        Command::cargo_bin("arky")
-            .unwrap()
-            .current_dir(root)
-            .args(["get", &name, "--store", &store, "--allow-missing"])
-            .assert()
+        arky_in(root, &["get", &name, "--store", &store, "--allow-missing"])
             .success()
             .stdout(eq(kept.as_slice()));
     }
@@ -340,19 +345,15 @@ fn a_write_whose_files_bucket_is_missing_creates_it_and_keeps_the_picture_there(
     fs::create_dir_all(root.join("draft/media")).unwrap();
     fs::write(root.join("draft/report.md"), REPORT).unwrap();
     fs::write(root.join("draft/media/logo.png"), PNG).unwrap();
-    Command::cargo_bin("arky")
-        .unwrap()
-        .current_dir(root)
-        .args([
-            "write",
-            "notes/report.md",
-            "-i",
-            "draft/report.md",
-            "--store",
-            &store,
-        ])
-        .assert()
-        .success();
+    let write = [
+        "write",
+        "notes/report.md",
+        "-i",
+        "draft/report.md",
+        "--store",
+        &store,
+    ];
+    arky_in(root, &write).success();
     runtime.block_on(async {
         let prefix = StorePath::new("files").unwrap();
         let config = ObjectConfig::new(

@@ -36,6 +36,10 @@ const KEYS: [(&str, &str); 2] = [
     ("AWS_SECRET_ACCESS_KEY", "arky-binary-secret"),
 ];
 
+/// The empty configuration file each run names in `ARKY_CONFIG`, in the
+/// folder it runs in.
+const ISOLATED: &str = "isolated-arky.toml";
+
 /// A `MinIO` server no process listens on, whose connection is refused at
 /// once.
 #[cfg(feature = "minio")]
@@ -53,10 +57,22 @@ const UNREACHABLE: &str = "mongodb://127.0.0.1:1/notes/files?loadBalanced=true&r
 
 /// Runs the binary in `folder` with `arguments`, `stdin` on standard input.
 fn arky(folder: &Path, arguments: &[&str], stdin: &[u8]) -> Assert {
+    let mut process = Process::new(cargo_bin("arky"));
+    isolated(&mut process, folder)
+        .current_dir(folder)
+        .args(arguments);
+    Command::from_std(process).write_stdin(stdin).assert()
+}
+
+/// Runs the binary as `arky` does, reading the `arky.toml` files from
+/// `folder` up: neither `ARKY_STORE` nor `ARKY_CONFIG` is set.
+fn arky_up_the_tree(folder: &Path, arguments: &[&str], stdin: &[u8]) -> Assert {
     Command::cargo_bin("arky")
         .unwrap()
         .current_dir(folder)
         .args(arguments)
+        .env_remove("ARKY_STORE")
+        .env_remove("ARKY_CONFIG")
         .write_stdin(stdin)
         .assert()
 }
@@ -65,13 +81,17 @@ fn arky(folder: &Path, arguments: &[&str], stdin: &[u8]) -> Assert {
 /// of the variables of `KEYS` only those in `variables`.
 #[cfg(feature = "minio")]
 fn arky_with_keys(folder: &Path, arguments: &[&str], variables: &[(&str, &OsStr)]) -> Assert {
-    let mut command = Command::cargo_bin("arky").unwrap();
-    command.current_dir(folder).args(arguments);
+    let mut process = Process::new(cargo_bin("arky"));
+    isolated(&mut process, folder)
+        .current_dir(folder)
+        .args(arguments);
     for (name, _) in KEYS {
-        command.env_remove(name);
+        process.env_remove(name);
     }
-    command.envs(variables.iter().copied());
-    command.write_stdin(b"# B\n".as_slice()).assert()
+    process.envs(variables.iter().copied());
+    Command::from_std(process)
+        .write_stdin(b"# B\n".as_slice())
+        .assert()
 }
 
 /// arky's form of the markdown `source`, its frontmatter in `frontmatter`.
@@ -138,11 +158,21 @@ fn folder() -> TempDir {
     tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap()
 }
 
-/// The names in `folder`, sorted.
+/// `command` cut off from the machine's configuration: no `ARKY_STORE`, and
+/// `ARKY_CONFIG` naming an empty `arky.toml` in `folder`, so no `arky.toml`
+/// above the test's folder is read.
+fn isolated<'command>(command: &'command mut Process, folder: &Path) -> &'command mut Process {
+    let config = folder.join(ISOLATED);
+    fs::write(&config, "").unwrap();
+    command.env_remove("ARKY_STORE").env("ARKY_CONFIG", &config)
+}
+
+/// The names in `folder` but `ISOLATED`, sorted.
 fn names(folder: &Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(folder)
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .filter(|name| name != ISOLATED)
         .collect();
     names.sort_unstable();
     names
@@ -220,14 +250,14 @@ fn a_pipe_between_two_runs_copies_the_file_in_each_form() {
     fs::write(root.join("a.md"), &source).unwrap();
     for form in FORMS.iter().copied() {
         let target = format!("{form}.md");
-        let mut get = Process::new(cargo_bin("arky"))
+        let mut get = isolated(&mut Process::new(cargo_bin("arky")), root)
             .current_dir(root)
             .args(["get", "a.md", "-f", form])
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
         let pipe = get.stdout.take().unwrap();
-        let written = Process::new(cargo_bin("arky"))
+        let written = isolated(&mut Process::new(cargo_bin("arky")), root)
             .current_dir(root)
             .args(["write", &target, "-f", form])
             .stdin(pipe)
@@ -354,12 +384,12 @@ fn a_saved_default_store_up_the_tree_is_where_a_get_reads_and_a_write_stores() {
     fs::write(root.join("n/a.md"), "# Notes\n").unwrap();
     fs::write(root.join("sub/a.md"), "# Sub\n").unwrap();
     let sub = root.join("sub");
-    arky(&sub, &["get", "a.md"], b"")
+    arky_up_the_tree(&sub, &["get", "a.md"], b"")
         .success()
         .stdout(eq("# Notes\n"));
-    arky(&sub, &["write", "b.md"], b"# B\n").success();
+    arky_up_the_tree(&sub, &["write", "b.md"], b"# B\n").success();
     assert_eq!(fs::read_to_string(root.join("n/b.md")).unwrap(), "# B\n");
-    arky(&sub, &["get", "a.md", "-s", "."], b"")
+    arky_up_the_tree(&sub, &["get", "a.md", "-s", "."], b"")
         .success()
         .stdout(eq("# Sub\n"));
     assert_eq!(names(&sub), ["a.md"]);
@@ -369,22 +399,26 @@ fn a_saved_default_store_up_the_tree_is_where_a_get_reads_and_a_write_stores() {
 fn a_variable_a_store_string_names_left_out_or_not_utf8_exits_3_naming_it() {
     let folder = folder();
     let root = folder.path();
-    let ran = Command::cargo_bin("arky")
-        .unwrap()
+    let mut left_out = Process::new(cargo_bin("arky"));
+    isolated(&mut left_out, root)
         .current_dir(root)
         .args(["get", "a.md", "-s", "${VAULT}"])
-        .env_remove("VAULT")
-        .assert();
-    failed(ran, 3, "arky: VAULT is not set: `${VAULT}` reads it\n");
-    let not_utf8 = Command::cargo_bin("arky")
-        .unwrap()
+        .env_remove("VAULT");
+    failed(
+        Command::from_std(left_out).assert(),
+        3,
+        "arky: VAULT is not set: `${VAULT}` reads it\n",
+    );
+    let mut not_utf8 = Process::new(cargo_bin("arky"));
+    isolated(&mut not_utf8, root)
         .current_dir(root)
         .args(["write", "b.md", "-s", "${VAULT}"])
-        .env("VAULT", OsStr::from_bytes(b"\xff"))
+        .env("VAULT", OsStr::from_bytes(b"\xff"));
+    let refused = Command::from_std(not_utf8)
         .write_stdin(b"# B\n".as_slice())
         .assert();
     failed(
-        not_utf8,
+        refused,
         3,
         "arky: VAULT is not UTF-8: `${VAULT}` reads it\n",
     );
@@ -399,6 +433,7 @@ fn an_arky_store_that_is_not_utf8_exits_3_naming_it() {
         .unwrap()
         .current_dir(root)
         .args(["write", "b.md"])
+        .env_remove("ARKY_CONFIG")
         .env("ARKY_STORE", OsStr::from_bytes(b"arky://\xff"))
         .write_stdin(b"# B\n".as_slice())
         .assert();
@@ -518,7 +553,7 @@ fn a_write_into_a_folder_that_is_not_writable_exits_4() {
 fn a_standard_input_that_cannot_be_read_exits_4() {
     let folder = folder();
     let root = folder.path();
-    let ran = Process::new(cargo_bin("arky"))
+    let ran = isolated(&mut Process::new(cargo_bin("arky")), root)
         .current_dir(root)
         .args(["write", "b.md"])
         .stdin(File::open(root).unwrap())
@@ -616,14 +651,14 @@ fn a_pipe_between_two_runs_carries_each_file_to_the_copy_in_each_form() {
     report(root, "notes/report.md");
     for form in FORMS.iter().copied() {
         let copy = format!("{form}/report.md");
-        let mut get = Process::new(cargo_bin("arky"))
+        let mut get = isolated(&mut Process::new(cargo_bin("arky")), root)
             .current_dir(root)
             .args(["get", "notes/report.md", "-f", form])
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
         let pipe = get.stdout.take().unwrap();
-        let written = Process::new(cargo_bin("arky"))
+        let written = isolated(&mut Process::new(cargo_bin("arky")), root)
             .current_dir(root)
             .args(["write", &copy, "-f", form])
             .stdin(pipe)
