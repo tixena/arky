@@ -463,6 +463,18 @@ fn a_relative_file_string_in_the_path_goes_up_a_folder_as_the_plain_path_does() 
 }
 
 #[test]
+fn an_absolute_file_string_in_the_path_goes_up_a_folder_as_the_plain_path_does() {
+    let system = MemorySystem::new()
+        .with_file("/a.md", b"# A\n")
+        .unwrap()
+        .with_current_dir("/v")
+        .unwrap();
+    for path in ["file:///srv/../a.md", "/srv/../a.md"] {
+        gave(&arky(&system, &["get", path], b""), "# A\n");
+    }
+}
+
+#[test]
 fn a_path_after_the_store_in_store_is_a_folder_inside_it() {
     let system = saved(None);
     for store in ["arky://work/drafts", "../w/drafts", "file:../w/drafts"] {

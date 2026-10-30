@@ -554,6 +554,21 @@ async fn an_absolute_file_string_in_a_path_roots_at_the_file_system_root() {
 }
 
 #[tokio::test]
+async fn a_dot_dot_inside_an_absolute_file_string_in_a_path_removes_the_part_before_it() {
+    opens_in_a_path("file:///srv/../a.md", "file:///", "a.md", "/a.md").await;
+}
+
+#[tokio::test]
+async fn an_absolute_file_string_in_a_path_drops_an_empty_part() {
+    opens_in_a_path("file:///srv//a.md", "file:///", "srv/a.md", "/srv/a.md").await;
+}
+
+#[tokio::test]
+async fn a_dot_dot_at_the_root_of_an_absolute_file_string_in_a_path_is_dropped() {
+    opens_in_a_path("file:///../a.md", "file:///", "a.md", "/a.md").await;
+}
+
+#[tokio::test]
 async fn a_store_string_in_a_path_with_nothing_after_its_container_is_an_invalid_store() {
     let system = MemorySystem::new();
     let backends = Backends::default();

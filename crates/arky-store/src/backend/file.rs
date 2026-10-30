@@ -46,21 +46,20 @@ impl Backend for FileBackend {
         &["file"]
     }
 
-    /// The root, `file:///` for an absolute path, and the path after it; a
-    /// relative path is normalized lexically and roots at `file:.` or at the
-    /// `..` steps it starts with, such as `file:../..`.
+    /// The root and the path after it, normalized lexically: an absolute path
+    /// roots at `file:///` and drops a `..` at the root; a relative one roots
+    /// at `file:.` or at the `..` steps it starts with, such as `file:../..`.
     fn split(&self, text: &str) -> Result<(String, String), StoreError> {
         let (path, query) = written(text)?;
         let full = decoded(path)?;
-        let (mut container, rest) = full.strip_prefix('/').map_or_else(
-            || normalized(&full),
-            |absolute| {
-                (
-                    "file:///".to_owned(),
-                    absolute.trim_start_matches('/').to_owned(),
-                )
-            },
-        );
+        let (up, rest) = normalized(&full);
+        let mut container = if full.starts_with('/') {
+            "file:///".to_owned()
+        } else if up.is_empty() {
+            "file:.".to_owned()
+        } else {
+            format!("{SCHEME}{}", up.join("/"))
+        };
         if let Some(options) = query {
             container.push('?');
             container.push_str(options);
@@ -69,10 +68,9 @@ impl Backend for FileBackend {
     }
 }
 
-/// The container and the path of the relative path `path` once `.` and
-/// empty parts are dropped and each `..` removes the part before it: `file:`
-/// with the `..` steps left at its start, or `file:.`, and the rest.
-fn normalized(path: &str) -> (String, String) {
+/// `path` once `.` and empty parts are dropped and each `..` removes the part
+/// before it: the `..` steps left with no part before them, and the rest.
+fn normalized(path: &str) -> (Vec<&str>, String) {
     let mut up = Vec::new();
     let mut parts = Vec::new();
     for part in path.split('/') {
@@ -86,12 +84,7 @@ fn normalized(path: &str) -> (String, String) {
             _ => parts.push(part),
         }
     }
-    let root = if up.is_empty() {
-        ".".to_owned()
-    } else {
-        up.join("/")
-    };
-    (format!("{SCHEME}{root}"), parts.join("/"))
+    (up, parts.join("/"))
 }
 
 /// The file store at the plain path `path`, taken as written: a relative one
