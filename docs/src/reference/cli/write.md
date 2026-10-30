@@ -184,10 +184,12 @@ With `--store mongodb:<database>/<collection>`, the store is the collection
 environment variable `ARKY_MONGODB_URI` names. The command line holds names
 only, never an address or a credential. The collection keeps each document, and
 the MinIO bucket that `ARKY_MONGODB_BUCKET` names keeps each file a document
-embeds as the object `files/<sha256>`, where `<sha256>` is the SHA-256 of the
-file's bytes in hexadecimal. A prefix goes before the key: with `notes/mongodb`,
-the file is the object `mongodb/files/<sha256>` of the bucket `notes`. One record
-of the collection `<collection>_files` names each object.
+embeds as the object `<database>/<collection>/files/<sha256>`, where `<sha256>`
+is the SHA-256 of the file's bytes in hexadecimal, so no two collections share
+an object. A prefix goes before the key: with `notes/mongodb`, a file of the
+collection `docs` of the database `work` is the object
+`mongodb/work/docs/files/<sha256>` of the bucket `notes`. One record of the
+collection `<collection>_files` names each object.
 
 | Variable | What it holds |
 |---|---|

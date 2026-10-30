@@ -1,11 +1,12 @@
 //! The store against the MongoDB and `RustFS` servers `just test-stores`
 //! starts, each test, or each lane of a test that runs every order of its
 //! steps, in a database of its own, dropped when it ends, and its files under a
-//! key prefix of its own.
+//! key prefix of its own; and a `MongoDB` store string opened through the
+//! backends.
 
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use core::mem;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{env, thread};
 
 use arky::bundle::{BundledDocument, Missing};
@@ -21,14 +22,17 @@ use os_shim::bucket::MinioBucket;
 use os_shim::mock::MemorySystem;
 use os_shim::real::RealSystem;
 use tokio::runtime::Builder;
+use url::form_urlencoded;
 
 use super::{
     Embedded, MongoStore, Replaced, embedded, object_path, on_path, stopped_deletion,
     stored_release_failed,
 };
 use crate::any::AnyStore;
+use crate::backend::Backends;
 use crate::document::{get, put, put_bundle};
 use crate::file::{self, FileStore};
+use crate::lock::LockSettings;
 use crate::mongo::record::{
     Claim, StoredDocument, StoredObject, from_record, frontmatter_is, revision_of, to_record,
 };
@@ -2050,6 +2054,98 @@ async fn through_a_boxed_store_the_files_bucket_is_the_container_and_there_are_n
         assert_eq!(boxed.finish_deletions().await, Ok(Vec::new()));
     })
     .await;
+}
+
+#[tokio::test]
+async fn two_collections_over_one_files_store_each_keep_an_object_of_a_picture_and_a_deletion_in_one_leaves_the_other()
+ {
+    let name = "arky_test_two_vaults";
+    let docs = MongoStore::open(&uri(), name, "docs", files_of(name))
+        .await
+        .unwrap();
+    let drafts = MongoStore::open(&uri(), name, "drafts", files_of(name))
+        .await
+        .unwrap();
+    let bundle = report_with(PNG);
+    save(&docs, REPORT_MD, &bundle).await;
+    save(&drafts, REPORT_MD, &bundle).await;
+    let object = object_of(PNG);
+    let in_docs = path(&format!("{name}/docs/{object}"));
+    let in_drafts = path(&format!("{name}/drafts/{object}"));
+    let shared = files_of(name);
+    assert_eq!(
+        shared.list(None).await.unwrap(),
+        [in_docs, in_drafts.clone()]
+    );
+
+    let report = path(REPORT_MD);
+    docs.delete(&report, &Precondition::None).await.unwrap();
+    assert_eq!(shared.list(None).await.unwrap(), [in_drafts]);
+    let logo = report.beside(LOGO).unwrap();
+    assert_eq!(drafts.read_embedded(&report, &logo).await, Ok(PNG.to_vec()));
+    assert_eq!(
+        get(&drafts, &report, Missing::Refuse).await.unwrap(),
+        bundle
+    );
+    drafts.delete(&report, &Precondition::None).await.unwrap();
+    let client = Client::with_uri_str(uri()).await.unwrap();
+    client.database(name).drop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_store_string_with_its_files_store_percent_encoded_round_trips_a_document_with_a_picture()
+{
+    let name = "arky_test_store_string";
+    let endpoint = env::var("ARKY_TEST_MINIO_ENDPOINT").unwrap();
+    let server = endpoint.strip_prefix("http://").unwrap();
+    let key = env::var("AWS_ACCESS_KEY_ID").unwrap();
+    let secret = env::var("AWS_SECRET_ACCESS_KEY").unwrap();
+    let bucket = env::var("ARKY_TEST_MINIO_BUCKET").unwrap();
+    let files = format!("minio+http://{key}:{secret}@{server}/{bucket}/mongo/{name}");
+    let encoded: String = form_urlencoded::byte_serialize(files.as_bytes()).collect();
+    let system = MemorySystem::new();
+    let backends = Backends::default();
+    let base = Path::new("/");
+    let lock = LockSettings::default();
+    let text = format!("{}/{name}/docs?files={encoded}", uri());
+    let store = backends.open(&text, base, lock, &system).await.unwrap();
+
+    let report = path(REPORT_MD);
+    let bundle = report_with(PNG);
+    let options = WriteOptions::default();
+    put_bundle(&*store, &report, &bundle, &options, &Precondition::None)
+        .await
+        .unwrap();
+    assert_eq!(
+        get(&*store, &report, Missing::Refuse).await.unwrap(),
+        bundle
+    );
+    let logo = report.beside(LOGO).unwrap();
+    assert_eq!(store.read_embedded(&report, &logo).await, Ok(PNG.to_vec()));
+    let objects = backends.open(&files, base, lock, &system).await.unwrap();
+    let object = path(&format!("{name}/docs/{}", object_of(PNG)));
+    assert_eq!(objects.list(None).await.unwrap(), [object]);
+
+    let in_drafts = format!("{}/{name}/docs/drafts?files={encoded}", uri());
+    let drafts = backends
+        .open(&in_drafts, base, lock, &system)
+        .await
+        .unwrap();
+    let draft = path("a.md");
+    drafts
+        .write(&draft, b"# A\n", &Precondition::None)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.list(None).await.unwrap(),
+        [path("drafts/a.md"), report.clone()]
+    );
+
+    drafts.delete(&draft, &Precondition::None).await.unwrap();
+    store.delete(&report, &Precondition::None).await.unwrap();
+    assert_eq!(objects.list(None).await.unwrap(), Vec::<StorePath>::new());
+    let client = Client::with_uri_str(uri()).await.unwrap();
+    client.database(name).drop().await.unwrap();
 }
 
 #[tokio::test]

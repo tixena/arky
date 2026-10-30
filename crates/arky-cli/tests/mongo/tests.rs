@@ -308,7 +308,9 @@ fn a_second_write_with_a_new_picture_deletes_the_old_object_and_its_record_and_g
             client.database(REPLACED_DATABASE).collection("files_files");
         assert_eq!(records.count_documents(doc! {}).await.unwrap(), 1);
         let record = records.find_one(doc! {}).await.unwrap().unwrap();
-        assert_eq!(record.get_str("object").unwrap(), objects[0].as_str());
+        let object = record.get_str("object").unwrap();
+        let key = format!("{REPLACED_DATABASE}/files/{object}");
+        assert_eq!(objects[0].as_str(), key);
         client.database(REPLACED_DATABASE).drop().await.unwrap();
     });
 }
@@ -350,7 +352,8 @@ fn a_write_whose_files_bucket_is_missing_creates_it_and_keeps_the_picture_there(
         let files = ObjectStore::open(&MACHINE, config).unwrap();
         let objects = files.list(None).await.unwrap();
         assert_eq!(objects.len(), 1);
-        assert!(objects[0].as_str().starts_with("files/"), "{}", objects[0]);
+        let under = format!("{CREATED_DATABASE}/files/files/");
+        assert!(objects[0].as_str().starts_with(&under), "{}", objects[0]);
         assert_eq!(files.read(&objects[0]).await.unwrap().bytes, PNG);
         let client = Client::with_uri_str(uri()).await.unwrap();
         client.database(CREATED_DATABASE).drop().await.unwrap();

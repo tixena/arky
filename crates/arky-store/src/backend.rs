@@ -11,20 +11,24 @@
 //! | file | `file`, and every plain path | `file:///srv/notes` absolute; `file:notes`, `notes` relative to the base folder | none |
 //! | `MinIO`, with the feature `minio` | `minio+http`, `minio+https` | `minio+https://[key:secret@]host[:port]/bucket[/prefix]` | `region` (`us-east-1`) |
 //! | AWS S3, with the feature `s3` | `s3` | `s3://[key:secret@]bucket[/prefix]` | `region` (required), `kms` (none) |
+//! | `MongoDB`, with the feature `mongodb` | `mongodb`, `mongodb+srv` | `mongodb[+srv]://[user:password@]host[:port][,host[:port]…]/<database>/<collection>[/<folder>]` | `files` (required): the `MinIO` store of its files, a store string percent-encoded or `arky://<name>`; every other option goes to the driver |
 //! | saved store, added with [`Backends::with`] | `arky` | `arky://<name>[/<folder>]` | none |
 //!
 //! A bucket store string with no keys reads them from `AWS_ACCESS_KEY_ID` and
-//! `AWS_SECRET_ACCESS_KEY`. Before a backend reads the text, each `${NAME}` in
-//! it is replaced by the variable `NAME`: percent-encoded in a store string,
-//! as it is in a plain path. `$$` writes `$`. An error names the store string
-//! as written, its variables unexpanded, and never a value read from the
-//! environment.
+//! `AWS_SECRET_ACCESS_KEY`. A `MongoDB` collection keeps its files under
+//! `<database>/<collection>` of its `files` store. Before a backend reads the
+//! text, each `${NAME}` in it is replaced by the variable `NAME`:
+//! percent-encoded in a store string, as it is in a plain path. `$$` writes
+//! `$`. An error names the store string as written, its variables unexpanded,
+//! and never a value read from the environment.
 
 pub mod arky;
 mod expand;
 mod file;
 #[cfg(feature = "minio")]
 mod minio;
+#[cfg(feature = "mongodb")]
+mod mongodb;
 #[cfg(feature = "s3")]
 mod s3;
 
@@ -170,7 +174,8 @@ pub trait Backend: Send + Sync {
 /// The backends a program can open, by scheme.
 ///
 /// [`Backends::default`] holds the built-in backends: `file` always, `MinIO`
-/// with the feature `minio`, AWS S3 with the feature `s3`. It leaves out
+/// with the feature `minio`, AWS S3 with the feature `s3`, `MongoDB` with the
+/// feature `mongodb`. It leaves out
 /// [`arky::SavedBackend`], which needs the saved stores: add it with
 /// `with(SavedBackend::new(…))`.
 ///
@@ -361,13 +366,15 @@ impl fmt::Debug for Backends {
 
 impl Default for Backends {
     /// The built-in backends: `file`, `MinIO` with the feature `minio`, AWS
-    /// S3 with the feature `s3`.
+    /// S3 with the feature `s3`, `MongoDB` with the feature `mongodb`.
     fn default() -> Self {
         Self {
             registered: Vec::from([
                 boxed(file::FileBackend),
                 #[cfg(feature = "minio")]
                 boxed(minio::MinioBackend),
+                #[cfg(feature = "mongodb")]
+                boxed(mongodb::MongoBackend),
                 #[cfg(feature = "s3")]
                 boxed(s3::S3Backend),
             ]),

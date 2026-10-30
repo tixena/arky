@@ -157,6 +157,20 @@ impl<'system, B: Bucket> ObjectStore<'system, B> {
             system,
         }
     }
+
+    /// The same store, its keys under `folder` inside the current prefix.
+    #[must_use]
+    pub fn within(self, folder: &StorePath) -> Self {
+        // Two store paths joined by `/` are a store path.
+        let prefix = self.prefix.as_ref().map_or_else(
+            || folder.clone(),
+            |prefix| StorePath(format!("{prefix}/{folder}")),
+        );
+        Self {
+            prefix: Some(prefix),
+            ..self
+        }
+    }
 }
 
 #[cfg(feature = "minio")]
