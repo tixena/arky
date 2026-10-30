@@ -36,9 +36,12 @@ use crate::{
 /// The longest key S3 takes, in bytes.
 const LONGEST_KEY: usize = 1024;
 
-/// Files in one bucket, under an optional key prefix. Over
-/// `MinioBucket`, a delete's precondition is checked by a request of its own
-/// before the delete, not in one step with it.
+/// Files in one bucket, under an optional key prefix.
+///
+/// A delete's precondition is checked by a request of its own before the
+/// delete over `MinioBucket`, because `MinIO` ignores `If-Match` on a delete,
+/// and in one step with it over `S3Bucket`, which sends `If-Match` and lets
+/// AWS check it.
 ///
 /// With the prefix `vault`, the file `notes/a.md` is the object
 /// `vault/notes/a.md`; with none, it is the object `notes/a.md`. A key holds
