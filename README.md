@@ -104,9 +104,12 @@ $ arky get report.md -o out/report.md --embed
 $ arky get report.md -f binary | arky write archive/report.md -f binary
 $ arky get post.md --frontmatter toml
 $ arky fix notes
+$ arky get plan.md -s file:notes
+$ arky get arky://notes/plan.md
+$ arky store list
 ```
 
-A path with no store is a file on disk. `-s minio:<bucket>` or `-s s3:<bucket>`, each with an optional `/<prefix>`, or `-s mongodb:<database>/<collection>` reads and writes a store instead. `arky fix` removes the expired locks that stopped saves left behind.
+A path with no store is a file on disk. `-s` names a store by a store string instead, such as `file:notes`, `minio+https://minio.example.com/notes/vault`, `s3://acme-notes/vault?region=eu-west-1` or `mongodb://db.example.com/work/docs?files=arky://media`, with `${NAME}` for a secret held in a variable, or by `arky://<name>`, a store saved as `[stores.<name>]` in an `arky.toml` of the current folder or a folder above it; the path itself may be a store string, and `ARKY_STORE` or the `default` of `arky.toml` names the store when neither does. `arky store list` lists the saved stores in use. `arky fix` removes the expired locks that stopped saves left behind.
 
 ## Documentation
 

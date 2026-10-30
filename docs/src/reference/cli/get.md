@@ -16,13 +16,13 @@ The path is required.
 
 | Part | What it takes |
 |---|---|
-| `<PATH>` | The document to read. With no `--store`, a file of the machine, relative to the current folder or absolute. `.` and `..` are resolved from the text of the path, without following links, so `../notes/a.md` names the file a shell would name. With a `--store`, a path of that store, such as `notes/task.md`, used as written. |
+| `<PATH>` | The document to read. A [store string](index.md#store-strings), such as `arky://notes/task.md` or `file:notes/task.md`, names the store and the document's path in it. Otherwise, in the store that `--store`, `ARKY_STORE` or the `default` of `arky.toml` names, a path of that store, such as `notes/task.md`, used as written. With none of them, a file of the machine, relative to the current folder or absolute. `.` and `..` are resolved from the text of the path, without following links, so `../notes/a.md` names the file a shell would name. |
 | `--allow-missing` | Gives the document though a file it embeds is missing, or its embed leaves the document's folder, each such embed kept as written. |
 | `--embed` | Writes markdown to `--output` as one file, every embedded file inside it as a data URI. It needs `--output` and the markdown form. |
 | `-f`, `--format <FORMAT>` | The form the document is written in: `markdown`, the default, `json`, `binary`, or `zip`. |
 | `--frontmatter <SYNTAX>` | The syntax the frontmatter is written in, in the markdown and zip forms: `yaml`, the default, or `toml`. |
 | `-o`, `--output <FILE>` | A file of the machine to write the document to, in place of standard output. It is never a path in a store. |
-| `-s`, `--store <STORE>` | The store the document is in: `minio:<bucket>`, `minio:<bucket>/<prefix>`, `s3:<bucket>`, `s3:<bucket>/<prefix>`, or `mongodb:<database>/<collection>`. The file system when it is left out. |
+| `-s`, `--store <STORE>` | The store `PATH` is in: a store string, `arky://<name>` or a folder, in place of `ARKY_STORE`, the `default` of `arky.toml` and the file system. A path written after the store is a folder inside it; `--store` never names the document. A `PATH` that is a store string wins over it. |
 
 `arky --help` and `arky get --help` print help; `arky --version` prints the
 version.
@@ -79,7 +79,8 @@ written first, the same way, and the `--output` file last; no other file is
 touched.
 
 An error is one line on standard error: `arky: `, the path as the command line
-gave it, and what failed.
+gave it, and what failed. An error of a store names the store instead: its store
+string in backticks, as written, or `ARKY_STORE` when that variable named it.
 
 ```console
 $ arky get missing.md
@@ -88,113 +89,143 @@ arky: missing.md: no file at this path
 
 ## Stores
 
-With no `--store`, the store is the file system.
+`arky get` reads the document from the first store given of: `PATH`, when it is a
+store string; `--store`; `ARKY_STORE`; the `default` of `arky.toml`; and, with
+none of them, the file system. [Store strings](index.md#store-strings) gives the
+form of each store string, its variables, and this order in full.
 
-With `--store minio:<bucket>` or `--store minio:<bucket>/<prefix>`, the store is
-the bucket `<bucket>` on the MinIO server that the environment names, its files
-kept as objects whose keys start with `<prefix>/`, or with no prefix when it is
-left out: with the prefix `vault`, the store path `notes/task.md` is the object
-`vault/notes/task.md`. The prefix follows the rules of a store path: parts joined
-by `/`, none empty, none `.` or `..`. The bucket goes in the path of each
-request's address, `<endpoint>/<bucket>/<key>`, and must already exist: a get
-creates no bucket.
+A store string in `PATH` names the store and the document's path in it. A path
+written after the store in `--store`, in `ARKY_STORE` or after a saved store's
+name is a folder inside that store, and `PATH` is the document's path in that
+folder, used as written: a store path, its parts joined by `/`, none empty, none
+`.` or `..`. `--store` never names the document.
 
-| Variable | What it holds |
-|---|---|
-| `ARKY_MINIO_ENDPOINT` | The address of the MinIO server, such as `http://127.0.0.1:9000`. Required, with no default. |
-| `ARKY_MINIO_REGION` | The region the server expects, such as `us-east-1`. Required. |
-| `AWS_ACCESS_KEY_ID` | The access key every request is signed with. Required. |
-| `AWS_SECRET_ACCESS_KEY` | The secret key every request is signed with. Required. No output and no error shows it. |
+```console
+$ arky get arky://notes/drafts/plan.md
+# Plan
+$ arky get drafts/plan.md -s arky://notes
+# Plan
+$ arky get plan.md -s arky://notes/drafts
+# Plan
+$ ARKY_STORE=arky://notes arky get drafts/plan.md
+# Plan
+$ arky get file:notes/drafts/plan.md
+# Plan
+```
 
-A missing variable exits with code 3, on one line that names it. A prefix that is
-not a store path exits with code 2. A server that cannot be reached, or that
+In the file system, `file:notes` and the plain folder `notes` name the same
+folder, and a `file:` path in `PATH` means what the same plain path means.
+
+With `minio+https://<host>/<bucket>/<prefix>`, or `minio+http://`, the store is
+the bucket `<bucket>` on that MinIO server, its files kept as objects whose keys
+start with `<prefix>/`, or with no prefix when it is left out: with the prefix
+`vault`, the store path `notes/task.md` is the object `vault/notes/task.md`. The
+bucket goes in the path of each request's address, `<endpoint>/<bucket>/<key>`,
+and must already exist: a get creates no bucket. The region is `us-east-1` unless
+the option `region` names another. A string with no `<key>:<secret>@` signs every
+request with `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. No output and no
+error shows the secret.
+
+A key that is not set exits with code 3, on one line that names it. A prefix that
+is not a store path exits with code 2. A server that cannot be reached, or that
 refuses the keys, exits with code 4.
 
 ```console
-$ export ARKY_MINIO_ENDPOINT=http://127.0.0.1:9000 ARKY_MINIO_REGION=us-east-1
+$ arky get notes/task.md -s minio+https://minio.example.com/notes/vault; echo "exit $?"
+arky: `minio+https://minio.example.com/notes/vault`: AWS_ACCESS_KEY_ID is not set: it holds the MinIO access key
+exit 3
+```
+
+This example needs a MinIO server, which the book's build does not have; it is
+written from arky's code:
+
+```console
 $ export AWS_ACCESS_KEY_ID=arky AWS_SECRET_ACCESS_KEY=arky-secret
-$ arky get notes/task.md | arky write notes/task.md --store minio:notes/vault
-$ arky get notes/task.md --store minio:notes/vault > task.md
+$ arky get notes/task.md | arky write notes/task.md -s minio+https://minio.example.com/notes/vault
+$ arky get notes/task.md -s minio+https://minio.example.com/notes/vault > task.md
 $ arky get notes/task.md | cmp - task.md && echo same
 same
-$ unset ARKY_MINIO_REGION; arky get notes/task.md -s minio:notes/vault; echo "exit $?"
-arky: ARKY_MINIO_REGION is not set: it holds the region the MinIO server expects
-exit 3
 ```
 
-With `--store s3:<bucket>` or `--store s3:<bucket>/<prefix>`, the store is the
-AWS S3 bucket `<bucket>` in the region that `ARKY_S3_REGION` names, its files
-kept as objects whose keys start with `<prefix>/`, or with no prefix when it is
-left out: with the prefix `vault`, the store path `notes/task.md` is the object
-`vault/notes/task.md`. The prefix follows the rules of a store path: parts joined
-by `/`, none empty, none `.` or `..`. The bucket must already exist: a get creates
-no bucket.
+With `s3://<bucket>/<prefix>?region=<region>`, the store is the AWS S3 bucket
+`<bucket>` in that region, its files kept as objects whose keys start with
+`<prefix>/`, or with no prefix when it is left out, as in a MinIO store. The
+bucket must already exist: a get creates no bucket. The option `region` is
+required. A string with no `<key>:<secret>@` signs every request with
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. No output and no error shows the
+secret.
 
-| Variable | What it holds |
-|---|---|
-| `ARKY_S3_REGION` | The AWS region of the bucket, such as `eu-west-1`. Required, with no default. |
-| `AWS_ACCESS_KEY_ID` | The access key every request is signed with. Required. |
-| `AWS_SECRET_ACCESS_KEY` | The secret key every request is signed with. Required. No output and no error shows it. |
-
-A missing variable exits with code 3, on one line that names it. A prefix that is
-not a store path exits with code 2. AWS that cannot be reached, or that refuses
-the keys, exits with code 4.
+A string with no region, or a prefix that is not a store path, exits with code 2.
+A key that is not set exits with code 3, on one line that names it. AWS that
+cannot be reached, or that refuses the keys, exits with code 4.
 
 ```console
-$ export ARKY_S3_REGION=eu-west-1 AWS_ACCESS_KEY_ID=AKIA... AWS_SECRET_ACCESS_KEY=...
-$ arky get notes/task.md | arky write notes/task.md --store s3:acme-notes/vault
-$ arky get notes/task.md --store s3:acme-notes/vault > task.md
-$ unset ARKY_S3_REGION; arky get notes/task.md -s s3:acme-notes/vault; echo "exit $?"
-arky: ARKY_S3_REGION is not set: it holds the AWS region of the S3 bucket
+$ arky get notes/task.md -s s3://acme-notes/vault; echo "exit $?"
+arky: `s3://acme-notes/vault`: no region: s3 needs ?region=<region>
+exit 2
+$ arky get notes/task.md -s 's3://acme-notes/vault?region=eu-west-1'; echo "exit $?"
+arky: `s3://acme-notes/vault?region=eu-west-1`: AWS_ACCESS_KEY_ID is not set: it holds the AWS access key
 exit 3
 ```
 
-With `--store mongodb:<database>/<collection>`, the store is the collection
-`<collection>` of the database `<database>`, on the MongoDB server that the
-environment variable `ARKY_MONGODB_URI` names. The command line holds names
-only, never an address or a credential. The collection keeps each document, and
-the MinIO bucket that `ARKY_MONGODB_BUCKET` names keeps each file a document
-embeds as the object `<database>/<collection>/files/<sha256>`, where `<sha256>`
-is the SHA-256 of the file's bytes in hexadecimal, so no two collections share
-an object. A prefix goes before the key: with `notes/mongodb`, a file of the
-collection `docs` of the database `work` is the object
+This example needs an AWS S3 bucket, which the book's build does not have; it is
+written from arky's code:
+
+```console
+$ export AWS_ACCESS_KEY_ID=AKIA... AWS_SECRET_ACCESS_KEY=...
+$ arky get 's3://acme-notes/vault/notes/task.md?region=eu-west-1' > task.md
+```
+
+With `mongodb://<host>/<database>/<collection>?files=<MinIO store>`, or
+`mongodb+srv://`, the store is the collection `<collection>` of the database
+`<database>` on that MongoDB server. The collection keeps each document, and the
+MinIO store that `files` names keeps each file a document embeds as the object
+`<database>/<collection>/files/<sha256>`, after that store's prefix, where
+`<sha256>` is the SHA-256 of the file's bytes in hexadecimal, so no two
+collections share an object: with `files` naming the bucket `notes` and the prefix
+`mongodb`, a file of the collection `docs` of the database `work` is the object
 `mongodb/work/docs/files/<sha256>` of the bucket `notes`. One record of the
-collection `<collection>_files` names each object.
+collection `<collection>_files` names each object. `files` is a MinIO store string
+percent-encoded, or `arky://<name>`, as
+[A store string inside an option](index.md#a-store-string-inside-an-option)
+describes. Every other option goes to the MongoDB driver as written. The server
+must be reachable when the store opens.
 
-| Variable | What it holds |
-|---|---|
-| `ARKY_MONGODB_URI` | The connection string of the MongoDB server, `mongodb://` or `mongodb+srv://`, with the server and its credentials. |
-| `ARKY_MONGODB_BUCKET` | The MinIO bucket of the store's files, `<bucket>` or `<bucket>/<prefix>`. |
-| `ARKY_MINIO_ENDPOINT`, `ARKY_MINIO_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | The MinIO server and its keys, as for `--store minio:`. |
-
-A missing variable exits with code 3, on one line that names it. An
-`ARKY_MONGODB_BUCKET` that is not `<bucket>` or `<bucket>/<prefix>`, or whose
-prefix is not a store path, exits with code 3 too. A server that cannot be
-reached exits with code 4.
+A string with no `files`, or whose `files` names a store other than MinIO, exits
+with code 2. A key of the `files` store that is not set exits with code 3. A
+server that cannot be reached exits with code 4.
 
 ```console
-$ export ARKY_MONGODB_URI=mongodb://127.0.0.1:27017 ARKY_MONGODB_BUCKET=notes/mongodb
-$ export ARKY_MINIO_ENDPOINT=http://127.0.0.1:9000 ARKY_MINIO_REGION=us-east-1
-$ export AWS_ACCESS_KEY_ID=arky AWS_SECRET_ACCESS_KEY=arky-secret
-$ arky get notes/task.md | arky write notes/task.md --store mongodb:notes/files
-$ arky get notes/task.md --store mongodb:notes/files
-$ unset ARKY_MONGODB_BUCKET; arky get notes/task.md -s mongodb:notes/files; echo "exit $?"
-arky: ARKY_MONGODB_BUCKET is not set: it holds the MinIO bucket of a MongoDB store's files
-exit 3
+$ arky get notes/task.md -s mongodb://db.example.com/work/docs; echo "exit $?"
+arky: `mongodb://db.example.com/work/docs`: files is required: the MinIO store of the collection's files
+exit 2
 ```
 
-An arky built without its default features has none of the MinIO store, the S3
-store and the MongoDB store, and a `--store minio:`, `--store s3:` or
-`--store mongodb:` value exits with code 3 in it:
+This example needs a MongoDB server and a MinIO server, which the book's build
+does not have; it is written from arky's code:
 
 ```console
-$ arky get notes/task.md --store minio:notes
-arky: minio:notes: this arky is built without the MinIO store
-$ arky get notes/task.md --store s3:notes
-arky: s3:notes: this arky is built without the S3 store
+$ cat arky.toml
+[stores.media]
+url = "minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/notes/mongodb"
+
+[stores.work]
+url = "mongodb://${MONGO_USER}:${MONGO_PASSWORD}@db.example.com/work/docs?files=arky://media"
+$ arky get notes/task.md | arky write notes/task.md -s arky://work
+$ arky get arky://work/notes/task.md
 ```
 
-A `--store` value of any other shape is a usage error, code 2.
+An arky built without its default features has none of the MinIO, S3 and MongoDB
+backends, and a store string of one of them exits with code 3 in it:
+
+```console
+$ arky get notes/task.md -s 's3://acme-notes/vault?region=eu-west-1'
+arky: `s3://acme-notes/vault?region=eu-west-1`: no backend for s3 in this build
+```
+
+`minio:`, `s3:` and `mongodb:` followed by anything but `//`, the short forms that
+named a store before store strings, exit with code 2; see
+[Store strings](index.md#store-strings).
 
 ## Exit codes
 
@@ -202,8 +233,8 @@ A `--store` value of any other shape is a usage error, code 2.
 |---|---|
 | 0 | Success. |
 | 1 | The document could not be read or written in the form: not UTF-8, not JSON, not this version of the binary form, or a value the frontmatter syntax cannot hold. Without `--allow-missing`, a file the document embeds that is missing, or an embed that leaves the document's folder. |
-| 2 | The command line is wrong: an unknown option, a missing path, a value an option does not take, `--embed` without `--output` or with a form other than markdown, or a path that cannot name a file, such as `/`. |
-| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARKY_MONGODB_URI` or `ARKY_MONGODB_BUCKET` for `--store mongodb:`, `ARKY_MINIO_ENDPOINT` for `--store minio:`, or `ARKY_S3_REGION` for `--store s3:`, or the store is not built into this arky. |
+| 2 | The command line is wrong: an unknown option, a missing path, a value an option does not take, `--embed` without `--output` or with a form other than markdown, or a path that cannot name a file, such as `/`, or that is not a path of its store, such as `./a.md` with a `--store`. A store string that does not parse, that names an option its backend does not take, or that is a short form, such as `minio:notes`, is code 2 too. |
+| 3 | The store is not configured, or its configuration is wrong: a variable a store string names is not set or is not UTF-8, `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` is not set for a MinIO or S3 store string that carries no keys, `ARKY_STORE` or `ARKY_CONFIG` is not UTF-8, a saved store no `arky.toml` defines, a backend this arky is built without, a file that `--config` or `ARKY_CONFIG` names and that does not exist, or an `arky.toml` that does not read. |
 | 4 | The store failed: a file system error, such as a folder that is not writable or a path that is a folder, a MongoDB or MinIO server or AWS that cannot be reached, or a MinIO server or AWS that refuses the keys. A failure to write standard output is code 4 too. |
 | 6 | No file at the path. |
 

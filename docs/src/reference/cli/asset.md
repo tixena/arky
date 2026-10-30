@@ -21,7 +21,7 @@ The store is required.
 
 | Option | What it takes |
 |---|---|
-| `-s`, `--store <STORE>` | The MongoDB store, `mongodb:<database>/<collection>`. |
+| `-s`, `--store <STORE>` | The store: a [store string](index.md#store-strings) or `arky://<name>`. Only a MongoDB store keeps deletions. |
 
 `arky asset --help` and `arky asset finish-deletions --help` print help.
 
@@ -42,9 +42,10 @@ embeds the same bytes then fails with code 4, naming
 record, it deletes the object, an object already gone counting as deleted, then
 the record. After it, a write of those bytes stores them again.
 
-The store is opened as `arky write --store mongodb:` opens it, from the same
-variables: `ARKY_MONGODB_URI`, `ARKY_MONGODB_BUCKET`, `ARKY_MINIO_ENDPOINT`,
-`ARKY_MINIO_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY`.
+The store is opened as `arky write --store` opens it, from its store string,
+`mongodb://<host>/<database>/<collection>?files=<MinIO store>`, or the saved
+store `arky://<name>` names. `arky asset finish-deletions` reads neither
+`ARKY_STORE` nor the `default` of `arky.toml`.
 
 ### When to run it
 
@@ -58,22 +59,25 @@ can still delete the new object, and the document that embeds it loses its file.
 The path of each object whose deletion it finished, `files/<sha256>`, under
 `<database>/<collection>/` of the bucket, one per line on standard output, sorted. Nothing when no deletion had stopped.
 
+This example needs a MongoDB server and a MinIO server, which the book's build
+does not have; it is written from arky's code:
+
 ```console
-$ arky asset finish-deletions --store mongodb:notes/files
+$ arky asset finish-deletions -s arky://work
 files/078892d2cf4160e6c295d580dd3a200f6189e9c5104b398162985b9a9cd299d5
 $ echo $?
 0
 ```
 
 An error is one line on standard error: `arky: `, the store as the command line
-gave it, and what failed. A MinIO store and an S3 store keep no deletions, so a
-`--store minio:` or `--store s3:` value exits with code 2:
+gave it, and what failed. A file store, a MinIO store and an S3 store keep no
+deletions, so a `--store` that names one exits with code 2:
 
 ```console
-$ arky asset finish-deletions --store minio:notes
-arky: minio:notes keeps no deletions: asset finish-deletions takes --store mongodb:<database>/<collection>
-$ arky asset finish-deletions --store s3:notes
-arky: s3:notes keeps no deletions: asset finish-deletions takes --store mongodb:<database>/<collection>
+$ arky asset finish-deletions -s file:notes
+arky: `file:notes` keeps no deletions: asset finish-deletions takes a MongoDB store
+$ arky asset finish-deletions -s arky://notes
+arky: `arky://notes` keeps no deletions: asset finish-deletions takes a MongoDB store
 ```
 
 ### Exit codes
@@ -81,8 +85,8 @@ arky: s3:notes keeps no deletions: asset finish-deletions takes --store mongodb:
 | Code | Meaning |
 |---|---|
 | 0 | Success: each deletion that stopped halfway is finished. |
-| 2 | The command line is wrong: no `--store`, a `--store` value of any other shape, or a `--store minio:` or `--store s3:` value. |
-| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, an `ARKY_MONGODB_BUCKET` that is not `<bucket>` or `<bucket>/<prefix>`, or the MongoDB store is not built into this arky. |
+| 2 | The command line is wrong: no `--store`; a `--store` that names a file, MinIO or S3 store, which keeps no deletions; or a store string that does not parse, that names an option its backend does not take, or that is a short form, such as `minio:notes`. |
+| 3 | The store is not configured, or its configuration is wrong: a variable a store string names is not set or is not UTF-8, `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` not set for a `files` store string that carries no keys, a saved store no `arky.toml` defines, a backend this arky is built without, or an `arky.toml` that does not read. |
 | 4 | The store failed: a MongoDB or MinIO server that cannot be reached, or a MinIO server that refuses the keys. A failure to write standard output is code 4 too. |
 
 ## Related
