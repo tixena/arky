@@ -35,7 +35,7 @@ use super::s3::{self, S3, S3Backend};
 use super::{Backend, Backends, Context, within};
 #[cfg(feature = "s3")]
 use crate::Store;
-use crate::config::SavedStores;
+use crate::config::{Configuration, SavedStores};
 use crate::file::FileStore;
 use crate::lock::LockSettings;
 #[cfg(feature = "s3")]
@@ -895,6 +895,38 @@ async fn a_saved_name_opens_its_store_against_the_folder_of_its_arky_toml_from_a
             "{current}"
         );
     }
+}
+
+#[tokio::test]
+async fn a_saved_name_from_a_file_named_with_dot_dot_opens_against_the_folder_of_that_file() {
+    let system = MemorySystem::new()
+        .with_file("/home/me/work/arky.toml", SAVED.as_bytes())
+        .unwrap()
+        .with_current_dir("/home/me/work/vault")
+        .unwrap();
+    let stores = Configuration::read(&system, Path::new("../arky.toml"))
+        .unwrap()
+        .stores;
+    let backends = Backends::default().with(SavedBackend::new(stores));
+    let base = Path::new("/home/me/work/vault");
+    assert_eq!(
+        backends.resolve("arky://notes", base).unwrap(),
+        ("file:notes".to_owned(), PathBuf::from("/home/me/work"))
+    );
+    let store = backends
+        .open("arky://notes", base, LockSettings::default(), &system)
+        .await
+        .unwrap();
+    store
+        .write(&path("a.md"), b"# A\n", &Precondition::Absent)
+        .await
+        .unwrap();
+    assert_eq!(
+        system
+            .read_to_string(Path::new("/home/me/work/notes/a.md"))
+            .unwrap(),
+        "# A\n"
+    );
 }
 
 #[tokio::test]
