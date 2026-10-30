@@ -25,25 +25,42 @@ pub(super) struct Expanded {
 }
 
 impl Expanded {
-    /// `error` with the store string `written` in front of the message of an
-    /// `InvalidStore`, and each value in that message, as it is or
-    /// percent-encoded, written back as `${NAME}`.
-    pub(super) fn as_written(&self, written: &str, error: StoreError) -> StoreError {
-        if let StoreError::InvalidStore(message) = error {
-            let hidden = self
-                .values
-                .iter()
-                .filter(|(_, value)| !value.is_empty())
-                .fold(message, |shown, (name, value)| {
-                    let variable = format!("${{{name}}}");
-                    shown
-                        .replace(&encoded(value), &variable)
-                        .replace(value.as_str(), &variable)
-                });
-            StoreError::InvalidStore(format!("`{written}`: {hidden}"))
-        } else {
-            error
+    /// `error`, from a backend handed `handed`, naming `written`: in place of
+    /// `handed` where the message starts with it, else in front of an
+    /// `InvalidStore`. Each value in the message is written back as `${NAME}`.
+    pub(super) fn as_written(&self, written: &str, handed: &str, error: StoreError) -> StoreError {
+        let start = format!("`{handed}`");
+        let named = |message: &str, otherwise: &str| {
+            message.strip_prefix(&start).map_or_else(
+                || format!("{otherwise}{}", self.hidden(message)),
+                |rest| format!("`{written}`{}", self.hidden(rest)),
+            )
+        };
+        match error {
+            StoreError::InvalidStore(message) => {
+                StoreError::InvalidStore(named(&message, &format!("`{written}`: ")))
+            }
+            StoreError::NotConfigured(message) => StoreError::NotConfigured(named(&message, "")),
+            StoreError::Backend(_)
+            | StoreError::Conflict(_)
+            | StoreError::InvalidPath(_)
+            | StoreError::NotFound(_)
+            | StoreError::Unsupported(_) => error,
         }
+    }
+
+    /// `message` with each value, as it is or percent-encoded, written back
+    /// as `${NAME}`.
+    fn hidden(&self, message: &str) -> String {
+        self.values
+            .iter()
+            .filter(|(_, value)| !value.is_empty())
+            .fold(message.to_owned(), |shown, (name, value)| {
+                let variable = format!("${{{name}}}");
+                shown
+                    .replace(&encoded(value), &variable)
+                    .replace(value.as_str(), &variable)
+            })
     }
 
     /// The text, each `${NAME}` replaced by its value.

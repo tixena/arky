@@ -1,7 +1,7 @@
 //! Store strings over `MemorySystem`: the expansion of their variables, the
 //! file, `MinIO` and AWS S3 backends, a backend of a test's own, a store
-//! string in a path argument, and a folder inside a store; under
-//! `cfg(store_tests)`, the `MinIO` backend on the `RustFS` server
+//! string in a path argument, a folder inside a store, and a saved store by
+//! name; under `cfg(store_tests)`, the `MinIO` backend on the `RustFS` server
 //! `just test-stores` starts.
 
 #[cfg(all(store_tests, feature = "minio"))]
@@ -23,6 +23,7 @@ use os_shim::mock::MemorySystem;
 
 #[cfg(any(feature = "minio", feature = "s3"))]
 use super::Keys;
+use super::arky::SavedBackend;
 use super::expand::expand;
 use super::file::FileBackend;
 #[cfg(feature = "minio")]
@@ -32,6 +33,7 @@ use super::s3::{self, S3, S3Backend};
 use super::{Backend, Backends, Context, within};
 #[cfg(feature = "s3")]
 use crate::Store;
+use crate::config::SavedStores;
 use crate::file::FileStore;
 use crate::lock::LockSettings;
 #[cfg(feature = "s3")]
@@ -51,6 +53,23 @@ const PASSWORD: &str = "p@ss/word";
 const PASSWORD_ENCODED: &str = "p%40ss%2Fword";
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n not a real picture";
+
+/// `/home/me/arky.toml` in the tests of saved stores.
+const SAVED: &str = r#"[stores.leaky]
+url = "file:${MINIO_PASSWORD}?x=${MINIO_PASSWORD}"
+
+[stores.notes]
+url = "file:notes"
+
+[stores.secret]
+url = "file:${NOTES_DIR}"
+
+[stores.wrong]
+url = "file:notes?x=1"
+"#;
+
+/// The file that saves the stores of the tests of saved stores.
+const SAVED_IN: &str = "/home/me/arky.toml";
 
 /// A backend of a test's own: `memory://<name>` is a file store at
 /// `/memory/<name>`.
@@ -75,6 +94,10 @@ impl Backend for MemoryBackend {
         let store: Box<dyn DynStore + 'store> =
             Box::new(FileStore::new(root, context.system).locking(context.lock));
         Box::pin(future::ready(Ok(store)))
+    }
+
+    fn resolve(&self, _text: &str) -> Option<Result<(String, PathBuf), StoreError>> {
+        None
     }
 
     fn schemes(&self) -> &'static [&'static str] {
@@ -103,6 +126,10 @@ impl Backend for OverFile {
         let store: Box<dyn DynStore + 'store> =
             Box::new(FileStore::new(PathBuf::from("/overridden"), context.system));
         Box::pin(future::ready(Ok(store)))
+    }
+
+    fn resolve(&self, _text: &str) -> Option<Result<(String, PathBuf), StoreError>> {
+        None
     }
 
     fn schemes(&self) -> &'static [&'static str] {
@@ -177,6 +204,18 @@ fn drafts(system: &MemorySystem) -> Box<dyn DynStore + '_> {
 
 fn path(text: &str) -> StorePath {
     StorePath::new(text).unwrap()
+}
+
+/// The default backends and `SavedBackend` over the stores `system` saves,
+/// as `Configuration::discover` finds them from `folder`.
+fn saved_backends(system: &MemorySystem, folder: &str) -> Backends {
+    let stores = SavedStores::discover(system, Path::new(folder)).unwrap();
+    Backends::default().with(SavedBackend::new(stores))
+}
+
+/// `system` with `text` as `/home/me/arky.toml`.
+fn saving(system: MemorySystem, text: &str) -> MemorySystem {
+    system.with_file(SAVED_IN, text.as_bytes()).unwrap()
 }
 
 /// A system whose environment holds `HOME`, `MINIO_USER` and
@@ -486,6 +525,29 @@ fn the_default_backends_answer_file_and_the_bucket_schemes_of_this_build() {
     );
     assert_eq!(backends.answering("s3").is_some(), cfg!(feature = "s3"));
     assert!(backends.answering("hdfs").is_none());
+    assert!(backends.answering("arky").is_none());
+}
+
+#[tokio::test]
+async fn the_default_backends_leave_out_the_saved_stores() {
+    let system = saving(MemorySystem::new(), SAVED);
+    let built_in = Backends::default();
+    let opened = built_in
+        .open(
+            "arky://notes",
+            Path::new("/home/me"),
+            LockSettings::default(),
+            &system,
+        )
+        .await;
+    let refused =
+        StoreError::NotConfigured("`arky://notes`: no backend for arky in this build".to_owned());
+    assert_eq!(opened.err(), Some(refused));
+    assert!(
+        saved_backends(&system, "/home/me")
+            .answering("arky")
+            .is_some()
+    );
 }
 
 #[tokio::test]
@@ -678,6 +740,272 @@ async fn within_a_folder_capabilities_containers_and_deletions_pass_through() {
     );
 }
 
+#[tokio::test]
+async fn a_saved_name_opens_its_store_against_the_folder_of_its_arky_toml_from_any_folder() {
+    for current in ["/home/me", "/home/me/work/deep"] {
+        let system = saving(MemorySystem::new(), SAVED);
+        let backends = saved_backends(&system, current);
+        let store = backends
+            .open(
+                "arky://notes",
+                Path::new(current),
+                LockSettings::default(),
+                &system,
+            )
+            .await
+            .unwrap();
+        store
+            .write(&path("a.md"), b"# A\n", &Precondition::Absent)
+            .await
+            .unwrap();
+        assert_eq!(
+            system
+                .read_to_string(Path::new("/home/me/notes/a.md"))
+                .unwrap(),
+            "# A\n",
+            "{current}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_saved_name_in_a_path_is_its_store_and_the_path_inside_it() {
+    let system = saving(MemorySystem::new(), SAVED);
+    let backends = saved_backends(&system, "/home/me/work");
+    let (store, at) = backends
+        .open_path(
+            "arky://notes/ideas/today.md",
+            Path::new("/home/me/work"),
+            LockSettings::default(),
+            &system,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(at.as_str(), "ideas/today.md");
+    store
+        .write(&at, b"# Today\n", &Precondition::Absent)
+        .await
+        .unwrap();
+    assert_eq!(
+        system
+            .read_to_string(Path::new("/home/me/notes/ideas/today.md"))
+            .unwrap(),
+        "# Today\n"
+    );
+}
+
+#[tokio::test]
+async fn a_saved_name_with_a_folder_opened_as_a_store_is_that_folder_inside_it() {
+    let system = saving(MemorySystem::new(), SAVED);
+    let backends = saved_backends(&system, "/home/me");
+    let store = backends
+        .open(
+            "arky://notes/ideas/",
+            Path::new("/home/me"),
+            LockSettings::default(),
+            &system,
+        )
+        .await
+        .unwrap();
+    store
+        .write(&path("a.md"), b"# A\n", &Precondition::Absent)
+        .await
+        .unwrap();
+    assert_eq!(
+        system
+            .read_to_string(Path::new("/home/me/notes/ideas/a.md"))
+            .unwrap(),
+        "# A\n"
+    );
+    assert_eq!(store.list(None).await.unwrap(), [path("a.md")]);
+}
+
+#[test]
+fn a_saved_name_in_a_path_splits_after_the_name_and_keeps_its_query_on_it() {
+    let backend = SavedBackend::new(SavedStores::default());
+    let splits = [
+        (
+            "arky://notes/ideas/today.md",
+            "arky://notes",
+            "ideas/today.md",
+        ),
+        ("arky://notes/a%20b.md?x=1", "arky://notes?x=1", "a b.md"),
+        ("arky://notes", "arky://notes", ""),
+    ];
+    for (text, container, inside) in splits {
+        let split = backend.split(text).unwrap();
+        assert_eq!(split, (container.to_owned(), inside.to_owned()), "{text}");
+    }
+}
+
+#[tokio::test]
+async fn an_unknown_saved_name_is_not_configured_naming_it() {
+    let system = saving(MemorySystem::new(), SAVED);
+    let backends = saved_backends(&system, "/home/me");
+    let base = Path::new("/home/me");
+    let lock = LockSettings::default();
+    let opened = backends.open("arky://nope", base, lock, &system).await;
+    let refused =
+        StoreError::NotConfigured("`arky://nope`: no store named nope in any arky.toml".to_owned());
+    assert_eq!(opened.err(), Some(refused));
+    let in_path = backends
+        .open_path("arky://nope/a.md", base, lock, &system)
+        .await;
+    let named = StoreError::NotConfigured(
+        "`arky://nope/a.md`: no store named nope in any arky.toml".to_owned(),
+    );
+    assert_eq!(in_path.err(), Some(named));
+}
+
+#[tokio::test]
+async fn a_saved_store_string_with_no_name_an_option_or_a_fragment_is_an_invalid_store() {
+    let system = saving(MemorySystem::new(), SAVED);
+    let backends = saved_backends(&system, "/home/me");
+    let base = Path::new("/home/me");
+    let lock = LockSettings::default();
+    let refused = [
+        ("arky://", "`arky://`: no store name"),
+        ("arky:///ideas", "`arky:///ideas`: no store name"),
+        ("arky://notes?x=1", "`arky://notes?x=1`: unknown option x"),
+        (
+            "arky://notes#top",
+            "`arky://notes#top`: a fragment, which a store string does not take",
+        ),
+        (
+            "arky:notes",
+            "`arky:notes`: a saved store string starts with arky://",
+        ),
+    ];
+    for (text, message) in refused {
+        let opened = backends.open(text, base, lock, &system).await;
+        let expected = StoreError::InvalidStore(message.to_owned());
+        assert_eq!(opened.err(), Some(expected), "{text}");
+    }
+    let in_path = backends
+        .open_path("arky://notes/a.md?x=1", base, lock, &system)
+        .await;
+    let named = StoreError::InvalidStore("`arky://notes/a.md?x=1`: unknown option x".to_owned());
+    assert_eq!(in_path.err(), Some(named));
+}
+
+#[tokio::test]
+async fn an_error_in_a_saved_store_string_names_the_name_and_the_string_with_its_file() {
+    let system = saving(MemorySystem::new(), SAVED);
+    let backends = saved_backends(&system, "/home/me");
+    let opened = backends
+        .open(
+            "arky://wrong",
+            Path::new("/home/me"),
+            LockSettings::default(),
+            &system,
+        )
+        .await;
+    let refused = StoreError::InvalidStore(
+        "`arky://wrong` (`file:notes?x=1` in /home/me/arky.toml): unknown option x".to_owned(),
+    );
+    assert_eq!(opened.err(), Some(refused));
+}
+
+#[tokio::test]
+async fn a_saved_store_string_s_variables_are_replaced_when_it_opens() {
+    let system = saving(MemorySystem::new(), SAVED)
+        .with_env("NOTES_DIR", "my notes")
+        .unwrap();
+    let backends = saved_backends(&system, "/home/me");
+    let store = backends
+        .open(
+            "arky://secret",
+            Path::new("/srv"),
+            LockSettings::default(),
+            &system,
+        )
+        .await
+        .unwrap();
+    store
+        .write(&path("a.md"), b"# A\n", &Precondition::Absent)
+        .await
+        .unwrap();
+    assert_eq!(
+        system
+            .read_to_string(Path::new("/home/me/my notes/a.md"))
+            .unwrap(),
+        "# A\n"
+    );
+}
+
+#[tokio::test]
+async fn a_variable_a_saved_store_string_reads_not_set_is_not_configured_naming_both() {
+    let system = saving(MemorySystem::new(), SAVED);
+    let backends = saved_backends(&system, "/home/me");
+    let opened = backends
+        .open(
+            "arky://secret",
+            Path::new("/home/me"),
+            LockSettings::default(),
+            &system,
+        )
+        .await;
+    let refused = StoreError::NotConfigured(
+        "NOTES_DIR is not set: `arky://secret` (`file:${NOTES_DIR}` in /home/me/arky.toml) reads it"
+            .to_owned(),
+    );
+    assert_eq!(opened.err(), Some(refused));
+}
+
+#[tokio::test]
+async fn no_error_of_a_saved_store_shows_a_variable_s_value() {
+    let system = saving(secrets(), SAVED).with_env("WHICH", "nope").unwrap();
+    let backends = saved_backends(&system, "/home/me");
+    let base = Path::new("/home/me");
+    let lock = LockSettings::default();
+    let leaky = backends
+        .open("arky://leaky", base, lock, &system)
+        .await
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(leaky.contains("arky://leaky"), "{leaky}");
+    assert!(!leaky.contains(PASSWORD), "{leaky}");
+    assert!(!leaky.contains(PASSWORD_ENCODED), "{leaky}");
+
+    let unknown = backends.open("arky://${WHICH}", base, lock, &system).await;
+    let refused = StoreError::NotConfigured(
+        "`arky://${WHICH}`: no store named ${WHICH} in any arky.toml".to_owned(),
+    );
+    assert_eq!(unknown.err(), Some(refused));
+}
+
+#[test]
+fn resolve_gives_a_saved_name_s_store_string_and_folder_and_any_other_text_unchanged() {
+    let system = saving(MemorySystem::new(), SAVED);
+    let backends = saved_backends(&system, "/home/me/work");
+    let base = Path::new("/srv");
+    assert_eq!(
+        backends.resolve("arky://notes", base).unwrap(),
+        ("file:notes".to_owned(), PathBuf::from("/home/me"))
+    );
+    for text in [
+        "file:notes",
+        "notes",
+        "minio+http://127.0.0.1:9000/b",
+        "hdfs://namenode/vault",
+    ] {
+        let unchanged = (text.to_owned(), base.to_path_buf());
+        assert_eq!(backends.resolve(text, base).unwrap(), unchanged, "{text}");
+    }
+    let unknown =
+        StoreError::NotConfigured("`arky://nope`: no store named nope in any arky.toml".to_owned());
+    assert_eq!(backends.resolve("arky://nope", base).err(), Some(unknown));
+    let folder = StoreError::InvalidStore(
+        "`arky://notes/sub`: a folder after the store name, where only a store is named".to_owned(),
+    );
+    assert_eq!(
+        backends.resolve("arky://notes/sub", base).err(),
+        Some(folder)
+    );
+}
+
 #[cfg(feature = "minio")]
 #[test]
 fn a_minio_string_names_its_server_bucket_and_prefix_in_us_east_1_by_default() {
@@ -750,13 +1078,41 @@ async fn a_minio_string_uses_its_keys_else_the_aws_variables() {
         .unwrap();
 
     let without = "minio+http://127.0.0.1:9000/notes";
-    let refused = StoreError::Backend(
+    let refused = StoreError::NotConfigured(
         "AWS_ACCESS_KEY_ID is not set: it holds the MinIO access key".to_owned(),
     );
     let unset = backends.open(without, base, lock, &none_set).await;
     assert_eq!(unset.err(), Some(refused));
     let set = with_aws_keys();
     backends.open(without, base, lock, &set).await.unwrap();
+}
+
+#[cfg(feature = "minio")]
+#[tokio::test]
+async fn an_error_in_a_saved_minio_string_names_the_name_and_the_string_with_its_file() {
+    let saved = r#"[stores.bucket]
+url = "minio+http://k:${S}@127.0.0.1:9000/b"
+
+[stores.work]
+url = "minio+https://minio.example.com/work/notes?regoin=x"
+"#;
+    let system = saving(MemorySystem::new(), saved);
+    let backends = saved_backends(&system, "/home/me");
+    let base = Path::new("/home/me");
+    let lock = LockSettings::default();
+    let option = backends.open("arky://work", base, lock, &system).await;
+    let refused = StoreError::InvalidStore(
+        "`arky://work` (`minio+https://minio.example.com/work/notes?regoin=x` in /home/me/arky.toml): unknown option regoin"
+            .to_owned(),
+    );
+    assert_eq!(option.err(), Some(refused));
+
+    let variable = backends.open("arky://bucket", base, lock, &system).await;
+    let unset = StoreError::NotConfigured(
+        "S is not set: `arky://bucket` (`minio+http://k:${S}@127.0.0.1:9000/b` in /home/me/arky.toml) reads it"
+            .to_owned(),
+    );
+    assert_eq!(variable.err(), Some(unset));
 }
 
 #[cfg(feature = "minio")]
@@ -835,6 +1191,29 @@ fn an_s3_string_with_no_region_a_port_or_an_unknown_option_is_an_invalid_store()
         let expected = Err(StoreError::InvalidStore(message.to_owned()));
         assert_eq!(s3::parse(text), expected, "{text}");
     }
+}
+
+#[cfg(feature = "s3")]
+#[tokio::test]
+async fn an_s3_string_uses_its_keys_else_the_aws_variables() {
+    let backends = Backends::default();
+    let base = Path::new(BASE);
+    let lock = LockSettings::default();
+    let none_set = MemorySystem::new();
+    let with_keys = "s3://AKIA0000:a-secret@acme?region=eu-west-1";
+    backends
+        .open(with_keys, base, lock, &none_set)
+        .await
+        .unwrap();
+
+    let without = "s3://acme?region=eu-west-1";
+    let refused = StoreError::NotConfigured(
+        "AWS_ACCESS_KEY_ID is not set: it holds the AWS access key".to_owned(),
+    );
+    let unset = backends.open(without, base, lock, &none_set).await;
+    assert_eq!(unset.err(), Some(refused));
+    let set = with_aws_keys();
+    backends.open(without, base, lock, &set).await.unwrap();
 }
 
 #[cfg(feature = "s3")]

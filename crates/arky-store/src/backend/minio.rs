@@ -2,10 +2,13 @@
 //! `minio+https://[key:secret@]host[:port]/bucket[/prefix][?region=…]`.
 
 use core::future;
+use std::path::PathBuf;
 
 use os_shim::bucket::{MinioBucket, MinioConfig};
 
-use super::{Backend, Bucketed, Context, Keys, bucket_url, decoded, parsed, prefix_of};
+use super::{
+    Backend, Bucketed, Context, Keys, bucket_url, decoded, missing_keys, parsed, prefix_of,
+};
 use crate::object::{ObjectConfig, ObjectStore};
 use crate::{BoxFuture, DynStore, StoreError, StorePath};
 
@@ -41,6 +44,10 @@ impl Backend for MinioBackend {
         Box::pin(future::ready(
             parse(text).and_then(|minio| store(minio, context)),
         ))
+    }
+
+    fn resolve(&self, _text: &str) -> Option<Result<(String, PathBuf), StoreError>> {
+        None
     }
 
     fn schemes(&self) -> &'static [&'static str] {
@@ -97,7 +104,8 @@ pub(super) fn parse(text: &str) -> Result<Minio, StoreError> {
 }
 
 /// The store `minio` names, holding the context's lock: over the keys it
-/// carries, else over `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
+/// carries, else over `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, a
+/// variable not set being `NotConfigured`.
 fn store<'store>(
     minio: Minio,
     context: Context<'store>,
@@ -113,7 +121,7 @@ fn store<'store>(
         ObjectStore::new(MinioBucket::new(config), minio.prefix, context.system)
     } else {
         let config = ObjectConfig::new(minio.endpoint, minio.region, minio.bucket, minio.prefix);
-        ObjectStore::open(context.system, config)?
+        ObjectStore::open(context.system, config).map_err(missing_keys)?
     };
     Ok(Box::new(opened.locking(context.lock)))
 }
