@@ -345,3 +345,37 @@ fn a_named_file_that_is_missing_is_refused() {
         ))
     );
 }
+
+#[test]
+fn a_named_file_with_dot_dot_saves_its_stores_in_the_file_it_names() {
+    let files = sample().with_current_dir("/home/me/work/vault").unwrap();
+    let defined = |file: &str| -> Vec<(String, PathBuf)> {
+        Configuration::read(&files, Path::new(file))
+            .unwrap()
+            .stores
+            .list()
+            .map(|saved| (saved.name.clone(), saved.defined_in.clone()))
+            .collect()
+    };
+    let work = PathBuf::from("/home/me/work/arky.toml");
+    assert_eq!(defined("../arky.toml"), [("vault_c".to_owned(), work)]);
+    let home = PathBuf::from("/home/me/arky.toml");
+    assert_eq!(
+        defined("./../../arky.toml"),
+        [
+            ("vault_a".to_owned(), home.clone()),
+            ("vault_b".to_owned(), home),
+        ]
+    );
+}
+
+#[test]
+fn a_missing_named_file_with_dot_dot_is_refused_naming_it_as_given() {
+    let files = sample().with_current_dir("/home/me/work/vault").unwrap();
+    assert_eq!(
+        Configuration::read(&files, Path::new("../x.toml")),
+        Err(StoreError::NotConfigured(
+            "../x.toml: the configuration file does not exist".to_owned()
+        ))
+    );
+}

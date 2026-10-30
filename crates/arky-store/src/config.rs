@@ -77,15 +77,16 @@ impl Configuration {
 
     /// The one file `file`, as `--config` and `ARKY_CONFIG` name it.
     ///
-    /// A relative `file` is taken against the current folder. No other file
-    /// is read.
+    /// A relative `file` is taken against the current folder, and `.` and
+    /// `..` are resolved from its text, as `discover` resolves them. No other
+    /// file is read.
     ///
     /// # Errors
     ///
-    /// `StoreError::NotConfigured`, naming `file`, when it does not exist,
-    /// does not read, or one of its keys breaks a rule.
+    /// `StoreError::NotConfigured`, naming `file` as given, when it does not
+    /// exist, does not read, or one of its keys breaks a rule.
     pub fn read(system: &dyn System, file: &Path) -> Result<Self, StoreError> {
-        let path = against_current(system, file)?;
+        let path = resolved(&against_current(system, file)?);
         let source = source_of(system, &path, file)?
             .ok_or_else(|| in_file(file, &"the configuration file does not exist"))?;
         Ok(parse(file, &path, &source)?.into_configuration())
