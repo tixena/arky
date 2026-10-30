@@ -46,21 +46,45 @@ impl Backend for FileBackend {
         &["file"]
     }
 
-    /// The root, `file:///` for an absolute path and `file:.` for a relative
-    /// one, and the path after it.
+    /// The root and the path after it, normalized lexically: an absolute path
+    /// roots at `file:///` and drops a `..` at the root; a relative one roots
+    /// at `file:.` or at the `..` steps it starts with, such as `file:../..`.
     fn split(&self, text: &str) -> Result<(String, String), StoreError> {
         let (path, query) = written(text)?;
         let full = decoded(path)?;
-        let (container, rest) = full.strip_prefix('/').map_or_else(
-            || ("file:.", trim_current(&full)),
-            |absolute| ("file:///", absolute.trim_start_matches('/')),
-        );
-        let kept = query.map_or_else(
-            || container.to_owned(),
-            |options| format!("{container}?{options}"),
-        );
-        Ok((kept, rest.to_owned()))
+        let (up, rest) = normalized(&full);
+        let mut container = if full.starts_with('/') {
+            "file:///".to_owned()
+        } else if up.is_empty() {
+            "file:.".to_owned()
+        } else {
+            format!("{SCHEME}{}", up.join("/"))
+        };
+        if let Some(options) = query {
+            container.push('?');
+            container.push_str(options);
+        }
+        Ok((container, rest))
     }
+}
+
+/// `path` once `.` and empty parts are dropped and each `..` removes the part
+/// before it: the `..` steps left with no part before them, and the rest.
+fn normalized(path: &str) -> (Vec<&str>, String) {
+    let mut up = Vec::new();
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    up.push(part);
+                }
+            }
+            _ => parts.push(part),
+        }
+    }
+    (up, parts.join("/"))
 }
 
 /// The file store at the plain path `path`, taken as written: a relative one
@@ -87,15 +111,6 @@ fn root(text: &str, base: &Path) -> Result<PathBuf, StoreError> {
 /// The file store at `root`, holding the context's lock.
 fn store<'store>(root: PathBuf, context: Context<'store>) -> Box<dyn DynStore + 'store> {
     Box::new(FileStore::new(root, context.system).locking(context.lock))
-}
-
-/// `path` without the `./` parts it starts with.
-fn trim_current(path: &str) -> &str {
-    let mut rest = path;
-    while let Some(after) = rest.strip_prefix("./") {
-        rest = after.trim_start_matches('/');
-    }
-    rest
 }
 
 /// The path the `file:` string `text` writes and its query, if any.
