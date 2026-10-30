@@ -28,6 +28,7 @@
   - [arky search](reference/cli/search.md)
   - [arky write](reference/cli/write.md)
   - [arky asset](reference/cli/asset.md)
+  - [arky store](reference/cli/store.md)
   - [arky rm](reference/cli/rm.md)
   - [arky link](reference/cli/link.md)
   - [arky check](reference/cli/check.md)
