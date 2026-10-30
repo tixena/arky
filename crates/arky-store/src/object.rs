@@ -159,12 +159,31 @@ impl<'system, B: Bucket> ObjectStore<'system, B> {
 }
 
 impl<'system> ObjectStore<'system, MinioBucket> {
+    /// Creates the store's bucket when it does not exist, and leaves a bucket
+    /// that exists as it is.
+    ///
+    /// It sends a HEAD on the bucket, and a create only when that answers 404.
+    /// The keys need the right to list the bucket, and to create it when it is
+    /// missing.
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::Backend` when the server cannot be reached, or refuses to
+    /// say whether the bucket exists or to create it.
+    pub async fn ensure(&self) -> Result<(), StoreError> {
+        self.bucket
+            .ensure()
+            .await
+            .map_err(|error| StoreError::Backend(error.to_string()))
+    }
+
     /// A store over the `MinIO` server `config` names, its keys read from the
     /// environment.
     ///
     /// It reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` through
     /// `system`, and sends no request: a server that cannot be reached fails
-    /// the first read or write, naming its path. Run the store's futures on
+    /// the first read or write, naming its path. Call [`ensure`](Self::ensure)
+    /// to create the bucket before the first write. Run the store's futures on
     /// tokio. Over `RealSystem` the keys come from the process's environment,
     /// and over `MemorySystem` from its `with_env`:
     ///
