@@ -246,7 +246,7 @@ fn parse(file: &Path, defined_in: &Path, source: &str) -> Result<Found, StoreErr
 
 /// `path` with `.` and `..` resolved from its text, so that its ancestors are
 /// the folders above the one it names.
-fn resolved(path: &Path) -> PathBuf {
+pub(crate) fn resolved(path: &Path) -> PathBuf {
     let mut folder = PathBuf::new();
     for component in path.components() {
         match component {

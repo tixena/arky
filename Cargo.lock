@@ -138,12 +138,14 @@ dependencies = [
  "chrono",
  "mongodb",
  "os-shim",
+ "percent-encoding",
  "serde",
  "serde_json",
  "sha2",
  "thiserror",
  "tixschema",
  "tokio",
+ "url",
  "uuid",
 ]
 
