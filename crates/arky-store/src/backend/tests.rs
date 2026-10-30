@@ -84,6 +84,9 @@ url = "minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/arky-file
 [stores.notes]
 url = "file:notes"
 
+[stores.opt]
+url = "minio+http://k:s@127.0.0.1:9000/b?${MINIO_PASSWORD}=1"
+
 [stores.unset]
 url = "minio+http://k:${UNSET_SECRET}@127.0.0.1:9000/b"
 "#;
@@ -1400,6 +1403,30 @@ async fn a_raw_variable_inside_an_inline_files_string_is_an_invalid_store_naming
     for error in [opened, in_path] {
         assert_eq!(error.as_ref(), Some(&refused));
         let message = error.unwrap().to_string();
+        assert!(!message.contains(PASSWORD), "{message}");
+        assert!(!message.contains(PASSWORD_ENCODED), "{message}");
+    }
+}
+
+#[cfg(feature = "mongodb")]
+#[tokio::test]
+async fn a_variable_in_an_option_name_of_a_files_string_is_named_never_shown() {
+    let system = saving(secrets(), SAVED_MEDIA);
+    let backends = saved_backends(&system, "/home/me");
+    let base = Path::new("/home/me");
+    let lock = LockSettings::default();
+    let refused = [
+        "mongodb://h/notes/docs?files=arky://opt",
+        "mongodb://h/notes/docs?files=minio%2Bhttp%3A%2F%2Fk%3As%40127.0.0.1%3A9000%2Fb%3F%24%7BMINIO_PASSWORD%7D%3D1",
+    ];
+    for text in refused {
+        let expected = StoreError::InvalidStore(format!(
+            "`{text}`: files: unknown option ${{MINIO_PASSWORD}}"
+        ));
+        let error = backends.open(text, base, lock, &system).await.err();
+        assert_eq!(error.as_ref(), Some(&expected), "{text}");
+        let message = error.unwrap().to_string();
+        assert!(message.contains("${MINIO_PASSWORD}"), "{message}");
         assert!(!message.contains(PASSWORD), "{message}");
         assert!(!message.contains(PASSWORD_ENCODED), "{message}");
     }

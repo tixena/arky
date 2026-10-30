@@ -107,9 +107,9 @@ fn files_of(text: &str, written: &str, context: Context<'_>) -> Result<Minio, St
             "files names {scheme}; a MongoDB store keeps its files in MinIO only"
         )));
     }
-    expand(&resolved, context.system, true)
-        .and_then(|expanded| minio::parse(expanded.text()))
-        .map_err(|error| of_files(text, error))
+    let expanded =
+        expand(&resolved, context.system, true).map_err(|error| of_files(text, error))?;
+    minio::parse(expanded.text()).map_err(|error| of_files(text, expanded.hide(error)))
 }
 
 /// The value of `pair` percent-decoded when it is the `files` option.
