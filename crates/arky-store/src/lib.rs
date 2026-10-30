@@ -25,19 +25,19 @@
 //! | [`FileStore`](file::FileStore) | Each file at its path under a root folder, through an os-shim `System`: the disk, or `MemorySystem` in tests. | none |
 #![cfg_attr(
     feature = "minio",
-    doc = "| [`ObjectStore`](object::ObjectStore) | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket`, or `MemoryBucket` in tests. | `minio` |"
+    doc = "| [`ObjectStore`](object::ObjectStore) | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket`, or `MemoryBucket` in tests. `ensure` creates a missing bucket. | `minio` |"
 )]
 #![cfg_attr(
     not(feature = "minio"),
-    doc = "| `ObjectStore` | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket`, or `MemoryBucket` in tests. | `minio` |"
+    doc = "| `ObjectStore` | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket`, or `MemoryBucket` in tests. `ensure` creates a missing bucket. | `minio` |"
 )]
 #![cfg_attr(
     feature = "mongodb",
-    doc = "| [`MongoStore`](mongo::MongoStore) | Each document as one `MongoDB` record whose frontmatter a query can name, and each embedded file once, by its SHA-256, in a `MinIO` bucket. | `mongodb`, which turns on `minio` |"
+    doc = "| [`MongoStore`](mongo::MongoStore) | Each document as one `MongoDB` record whose frontmatter a query can name, and each embedded file once, by its SHA-256, in a `MinIO` bucket. `ensure_files_bucket` creates a missing bucket of its files. | `mongodb`, which turns on `minio` |"
 )]
 #![cfg_attr(
     not(feature = "mongodb"),
-    doc = "| `MongoStore` | Each document as one `MongoDB` record whose frontmatter a query can name, and each embedded file once, by its SHA-256, in a `MinIO` bucket. | `mongodb`, which turns on `minio` |"
+    doc = "| `MongoStore` | Each document as one `MongoDB` record whose frontmatter a query can name, and each embedded file once, by its SHA-256, in a `MinIO` bucket. `ensure_files_bucket` creates a missing bucket of its files. | `mongodb`, which turns on `minio` |"
 )]
 //! | [`AnyStore`](any::AnyStore) | Whichever of the three a program opened at run time. | none; each variant needs its store's feature |
 //!

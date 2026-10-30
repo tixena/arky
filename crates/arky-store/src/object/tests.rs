@@ -506,6 +506,20 @@ fn open_names_the_variable_that_is_not_set_and_never_shows_the_secret_key() {
 }
 
 #[tokio::test]
+async fn ensure_on_a_server_that_cannot_be_reached_is_a_backend_error_that_never_shows_the_secret_key()
+ {
+    let system = MemorySystem::new()
+        .with_env("AWS_ACCESS_KEY_ID", "arky")
+        .unwrap()
+        .with_env("AWS_SECRET_ACCESS_KEY", SECRET)
+        .unwrap();
+    let store = ObjectStore::open(&system, nowhere()).unwrap();
+    let refused = store.ensure().await.err().unwrap();
+    assert!(matches!(refused, StoreError::Backend(_)), "{refused:?}");
+    assert!(!refused.to_string().contains(SECRET), "{refused}");
+}
+
+#[tokio::test]
 async fn a_lock_is_an_object_holding_the_guid_and_the_seconds_it_was_taken() {
     let taken = SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_700_000);
     let system = MemorySystem::new().with_now(taken).unwrap();

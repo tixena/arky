@@ -137,6 +137,29 @@ async fn each_fixture_through_rustfs_and_back_is_arkys_form_and_a_second_copy_ch
 }
 
 #[tokio::test]
+async fn ensure_creates_a_missing_bucket_and_leaves_it_alone_the_second_time() {
+    let config = ObjectConfig::new(
+        env::var("ARKY_TEST_MINIO_ENDPOINT").unwrap(),
+        "us-east-1".to_owned(),
+        "arky-ensure".to_owned(),
+        None,
+    );
+    let store = ObjectStore::open(&MACHINE, config).unwrap();
+    assert!(matches!(
+        store.list(None).await,
+        Err(StoreError::Backend(_))
+    ));
+    store.ensure().await.unwrap();
+    let note = path("notes/a.md");
+    store
+        .write(&note, b"# A\n", &Precondition::Absent)
+        .await
+        .unwrap();
+    store.ensure().await.unwrap();
+    assert_eq!(names(&store.list(None).await.unwrap()), ["notes/a.md"]);
+}
+
+#[tokio::test]
 async fn on_rustfs_a_put_keeps_each_embedded_file_beside_the_document_and_a_get_gives_it_back() {
     let store = server("embedded");
     let options = WriteOptions::default();

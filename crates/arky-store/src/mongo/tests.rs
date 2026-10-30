@@ -1625,6 +1625,41 @@ async fn a_save_stores_the_object_its_record_and_the_files_map_and_a_get_gives_e
 }
 
 #[tokio::test]
+async fn ensure_files_bucket_creates_the_missing_bucket_and_a_saved_picture_reads_back() {
+    let name = "arky_test_ensure_files_bucket";
+    let config = ObjectConfig::new(
+        env::var("ARKY_TEST_MINIO_ENDPOINT").unwrap(),
+        "us-east-1".to_owned(),
+        "arky-ensure-mongo".to_owned(),
+        Some(path(&format!("mongo/{name}"))),
+    );
+    let files = ObjectStore::open(&MACHINE, config).unwrap();
+    let store = MongoStore::open(&uri(), name, "files", files)
+        .await
+        .unwrap();
+    assert!(matches!(
+        store.files.list(None).await,
+        Err(StoreError::Backend(_))
+    ));
+    store.ensure_files_bucket().await.unwrap();
+    let report = path(REPORT_MD);
+    store
+        .write_with_embedded(
+            &report,
+            REPORT,
+            &logo_files(REPORT_MD, PNG),
+            &Precondition::None,
+        )
+        .await
+        .unwrap();
+    let logo = report.beside(LOGO).unwrap();
+    let read = store.read_embedded(&report, &logo).await;
+    assert_eq!(read, Ok(PNG.to_vec()));
+    let client = Client::with_uri_str(uri()).await.unwrap();
+    client.database(name).drop().await.unwrap();
+}
+
+#[tokio::test]
 async fn two_embeds_of_one_target_in_two_forms_give_each_file_the_alt_text_of_its_own_embed() {
     in_database("arky_test_same_target", async |store| {
         let note = b"# Logo\n";

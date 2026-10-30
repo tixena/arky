@@ -203,6 +203,16 @@ impl<'system> MongoStore<'system> {
         }
     }
 
+    /// Creates the bucket of the store's files when it does not exist, and
+    /// leaves a bucket that exists as it is.
+    ///
+    /// # Errors
+    ///
+    /// `StoreError::Backend` as [`ObjectStore::ensure`] gives it.
+    pub async fn ensure_files_bucket(&self) -> Result<(), StoreError> {
+        self.files.ensure().await
+    }
+
     /// Every record `filter` matches, read through `from_record`.
     ///
     /// A record's fields are `path`, `revision`, `save`, `files` and `doc`,
