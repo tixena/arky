@@ -11,14 +11,14 @@ use arky::forms::{Form, encode};
 use arky::writer::WriteOptions;
 use arky_store::backend::Backends;
 use arky_store::backend::arky::SavedBackend;
-use arky_store::config::Configuration;
+use arky_store::config::{Configuration, SavedStores};
 use arky_store::document::{self, DocumentError};
 use arky_store::file::FileStore;
 use arky_store::lock::LockSettings;
 use arky_store::{DynStore, Precondition, Revision, StoreError, StorePath};
 use os_shim::System;
 
-use crate::cli::{AssetCommand, Cli, Command, FormatArg, StoreArg, SyntaxArg};
+use crate::cli::{AssetCommand, Cli, Command, FormatArg, StoreArg, StoreCommand, SyntaxArg};
 
 /// The variable naming the configuration file when `--config` names none.
 const CONFIG_VARIABLE: &str = "ARKY_CONFIG";
@@ -371,6 +371,9 @@ async fn execute(
             )
             .await
         }
+        Command::Store {
+            command: StoreCommand::List,
+        } => store_list(&setup.configuration.stores, stdout),
         Command::Write {
             path,
             allow_missing,
@@ -598,6 +601,35 @@ const fn store_code(error: &StoreError) -> u8 {
         StoreError::NotFound(_) => 6,
         StoreError::Backend(_) | StoreError::Conflict(_) | StoreError::Unsupported(_) | _ => 4,
     }
+}
+
+/// Writes each saved store of `stores` to `stdout`, one per line and sorted by
+/// name: its name, its URL as written and the `arky.toml` it comes from, in
+/// columns two spaces apart and padded to line up.
+fn store_list(stores: &SavedStores, stdout: &mut (dyn Write + Send)) -> Result<(), Failure> {
+    let names = stores
+        .list()
+        .map(|store| store.name.chars().count())
+        .max()
+        .unwrap_or(0);
+    let urls = stores
+        .list()
+        .map(|store| store.url.chars().count())
+        .max()
+        .unwrap_or(0);
+    for store in stores.list() {
+        writeln!(
+            stdout,
+            "{:<names$}  {:<urls$}  {}",
+            store.name,
+            store.url,
+            store.defined_in.display()
+        )
+        .map_err(|error| Failure::stream("standard output", &error))?;
+    }
+    stdout
+        .flush()
+        .map_err(|error| Failure::stream("standard output", &error))
 }
 
 /// `path` against the current folder, `.` and `..` resolved from its text

@@ -20,8 +20,17 @@ static MACHINE: RealSystem = RealSystem::new();
 /// `arky` run in `root`.
 fn arky(root: &Path) -> Command {
     let mut command = Command::cargo_bin("arky").unwrap();
-    command.current_dir(root);
+    isolated(&mut command, root).current_dir(root);
     command
+}
+
+/// `command` cut off from the machine's configuration: no `ARKY_STORE`, and
+/// `ARKY_CONFIG` naming an empty `arky.toml` in `folder`, so no `arky.toml`
+/// above the test's folder is read.
+fn isolated<'command>(command: &'command mut Command, folder: &Path) -> &'command mut Command {
+    let config = folder.join("isolated-arky.toml");
+    fs::write(&config, "").unwrap();
+    command.env_remove("ARKY_STORE").env("ARKY_CONFIG", &config)
 }
 
 #[test]

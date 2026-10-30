@@ -70,6 +70,11 @@ pub enum Command {
         #[arg(short, long)]
         store: Option<StoreArg>,
     },
+    /// Commands on the saved stores of arky.toml.
+    Store {
+        #[command(subcommand)]
+        command: StoreCommand,
+    },
     /// Stores at PATH the document read from standard input, or from --input. PATH may be a
     /// store string, such as arky://<name>/<path>.
     Write {
@@ -126,6 +131,13 @@ impl From<String> for StoreArg {
     fn from(text: String) -> Self {
         Self(text)
     }
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum StoreCommand {
+    /// Lists the saved stores in use here: each name, its URL as written and the arky.toml it
+    /// comes from.
+    List,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]

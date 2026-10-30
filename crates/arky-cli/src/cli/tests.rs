@@ -2,7 +2,7 @@ use arky::forms::Form;
 use clap::error::ErrorKind;
 use clap::{CommandFactory as _, Parser as _};
 
-use super::{AssetCommand, Cli, Command, FormatArg, StoreArg, SyntaxArg};
+use super::{AssetCommand, Cli, Command, FormatArg, StoreArg, StoreCommand, SyntaxArg};
 
 #[test]
 fn the_command_line_is_well_formed() {
@@ -135,7 +135,9 @@ fn each_of_the_four_forms_parses_on_get_and_write_and_names_its_form() {
                     path: _,
                     store: _,
                 } => Some(format),
-                Command::Asset { command: _ } | Command::Fix { path: _, store: _ } => None,
+                Command::Asset { command: _ }
+                | Command::Fix { path: _, store: _ }
+                | Command::Store { command: _ } => None,
             };
             assert_eq!(format.map(Form::from), Some(form), "{command} {text}");
         }
@@ -195,6 +197,34 @@ fn asset_finish_deletions_parses_its_store() {
 fn asset_finish_deletions_without_a_store_is_a_usage_error_with_code_2() {
     let error = Cli::try_parse_from(["arky", "asset", "finish-deletions"]).unwrap_err();
     assert_eq!(error.kind(), ErrorKind::MissingRequiredArgument);
+    assert_eq!(error.exit_code(), 2_i32);
+}
+
+#[test]
+fn store_list_parses_and_takes_no_argument_but_the_global_config() {
+    let list = Cli::try_parse_from(["arky", "store", "list"]).unwrap();
+    assert!(
+        matches!(
+            &list.command,
+            Command::Store {
+                command: StoreCommand::List
+            }
+        ),
+        "{list:?}"
+    );
+    let mut command = Cli::command();
+    command.build();
+    let listed = command
+        .find_subcommand("store")
+        .and_then(|store| store.find_subcommand("list"))
+        .unwrap();
+    let mut taken: Vec<&str> = listed
+        .get_arguments()
+        .map(|argument| argument.get_id().as_str())
+        .collect();
+    taken.sort_unstable();
+    assert_eq!(taken, ["config", "help"]);
+    let error = Cli::try_parse_from(["arky", "store"]).unwrap_err();
     assert_eq!(error.exit_code(), 2_i32);
 }
 

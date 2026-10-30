@@ -66,11 +66,34 @@ const KEYS: [(&str, &str); 4] = [
 
 const LOCK: &str = "/vault/notes/report.md.arky-lock";
 
+/// The variables `SAVED_NEAR`'s url reads, which `store list` never shows.
+const MINIO_KEYS: [(&str, &str); 2] = [
+    ("MINIO_PASSWORD", "arky-unit-password"),
+    ("MINIO_USER", "arky-unit-user"),
+];
+
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n not a real picture";
 
 const REPORT: &str = "# Report\n\n![Logo](media/logo.png)\n";
 
 const SAVE: [&str; 4] = ["write", "notes/report.md", "-i", "draft/report.md"];
+
+/// The `arky.toml` of `/home/me`, two folders above the one `store list` runs
+/// in.
+const SAVED_FAR: (&str, &str) = ("/home/me/arky.toml", "[stores.vault_b]\nurl = \"file:b\"\n");
+
+/// The `arky.toml` of `/home/me/work`, the folder above the one `store list`
+/// runs in.
+const SAVED_MIDDLE: (&str, &str) = (
+    "/home/me/work/arky.toml",
+    "[stores.vault_c]\nurl = \"s3://acme-vault-c?region=eu-west-1\"\n",
+);
+
+/// The `arky.toml` of `/home/me/work/vault`, the folder `store list` runs in.
+const SAVED_NEAR: (&str, &str) = (
+    "/home/me/work/vault/arky.toml",
+    "[stores.vault_a]\nurl = \"minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/vault-a\"\n",
+);
 
 const START: u64 = 1_792_700_000;
 
@@ -1636,4 +1659,105 @@ fn a_standard_output_that_fails_exits_4_after_fix_removed_a_lock() {
     assert_eq!(code, ExitCode::from(4));
     let line = String::from_utf8(stderr).unwrap();
     assert!(line.starts_with("arky: standard output: "), "{line}");
+}
+
+/// A system whose current folder is `/home/me/work/vault`, holding `files`,
+/// with the variables of `MINIO_KEYS`.
+fn listed(files: &[(&str, &str)]) -> MemorySystem {
+    let system = MemorySystem::new()
+        .with_current_dir("/home/me/work/vault")
+        .unwrap();
+    let keyed = MINIO_KEYS.iter().fold(system, |with, (name, value)| {
+        with.with_env(name, value).unwrap()
+    });
+    files.iter().fold(keyed, |with, (path, text)| {
+        with.with_file(path, text.as_bytes()).unwrap()
+    })
+}
+
+#[test]
+fn store_list_writes_each_saved_store_in_use_sorted_aligned_with_its_url_as_written_and_its_file() {
+    let system = listed(&[SAVED_NEAR, SAVED_FAR, SAVED_MIDDLE]);
+    let ran = arky(&system, &["store", "list"], b"");
+    wrote_lines(
+        &ran,
+        concat!(
+            "vault_a  minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/vault-a  /home/me/work/vault/arky.toml\n",
+            "vault_b  file:b                                                                   /home/me/arky.toml\n",
+            "vault_c  s3://acme-vault-c?region=eu-west-1                                       /home/me/work/arky.toml\n",
+        ),
+    );
+}
+
+#[test]
+fn store_list_shows_the_variables_of_a_url_and_never_their_values() {
+    let ran = arky(&listed(&[SAVED_NEAR]), &["store", "list"], b"");
+    let listing = String::from_utf8(ran.stdout).unwrap();
+    assert!(listing.contains("${MINIO_PASSWORD}"), "{listing}");
+    for (_, value) in MINIO_KEYS {
+        assert!(!listing.contains(value), "{listing}");
+    }
+}
+
+#[test]
+fn a_name_saved_in_two_files_is_listed_once_from_the_nearer_file() {
+    let far = (
+        "/home/me/arky.toml",
+        "[stores.vault_a]\nurl = \"file:far-a\"\n\n[stores.vault_b]\nurl = \"file:b\"\n",
+    );
+    let ran = arky(&listed(&[SAVED_NEAR, far]), &["store", "list"], b"");
+    wrote_lines(
+        &ran,
+        concat!(
+            "vault_a  minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/vault-a  /home/me/work/vault/arky.toml\n",
+            "vault_b  file:b                                                                   /home/me/arky.toml\n",
+        ),
+    );
+}
+
+#[test]
+fn store_list_with_no_saved_store_writes_nothing_and_exits_0() {
+    wrote_lines(&arky(&listed(&[]), &["store", "list"], b""), "");
+    let unsaved = listed(&[(
+        "/home/me/arky.toml",
+        "default = \"gone\"\n[lock]\nwait_seconds = 3\n",
+    )]);
+    wrote_lines(&arky(&unsaved, &["store", "list"], b""), "");
+}
+
+#[test]
+fn store_list_with_a_configuration_error_exits_3_naming_the_file() {
+    let broken = ("/home/me/arky.toml", "[stores.vault_b]\nurl = 5\n");
+    let ran = arky(&listed(&[SAVED_NEAR, broken]), &["store", "list"], b"");
+    failed(
+        &ran,
+        3,
+        "arky: /home/me/arky.toml: [stores.vault_b] url is not a string\n",
+    );
+}
+
+#[test]
+fn store_list_with_config_or_arky_config_lists_only_the_stores_of_that_file() {
+    let system = listed(&[SAVED_NEAR, SAVED_FAR, SAVED_MIDDLE]);
+    let named = arky(
+        &system,
+        &["store", "list", "-c", "/home/me/work/arky.toml"],
+        b"",
+    );
+    wrote_lines(
+        &named,
+        "vault_c  s3://acme-vault-c?region=eu-west-1  /home/me/work/arky.toml\n",
+    );
+    let relative = arky(&system, &["-c", "arky.toml", "store", "list"], b"");
+    wrote_lines(
+        &relative,
+        "vault_a  minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/vault-a  /home/me/work/vault/arky.toml\n",
+    );
+    let variable = listed(&[SAVED_NEAR, SAVED_FAR, SAVED_MIDDLE])
+        .with_env("ARKY_CONFIG", "/home/me/arky.toml")
+        .unwrap();
+    wrote_lines(
+        &arky(&variable, &["store", "list"], b""),
+        "vault_b  file:b  /home/me/arky.toml\n",
+    );
 }
