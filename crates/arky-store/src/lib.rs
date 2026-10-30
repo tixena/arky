@@ -402,6 +402,7 @@ tixschema::decode_with_foundation!();
 tixschema::mongodb_foundation!();
 
 pub mod any;
+pub mod config;
 pub mod document;
 pub mod file;
 pub mod lock;
@@ -546,6 +547,11 @@ pub enum StoreError {
     /// an object key longer than 1024 bytes.
     #[error("`{0}` is not a store path")]
     InvalidPath(String),
+    /// A store that cannot be opened as configured: a variable it names is not
+    /// set or not UTF-8, its backend is not built in, a saved store it names
+    /// is not defined, or an arky.toml that does not read.
+    #[error("{0}")]
+    NotConfigured(String),
     /// No file is at the path.
     #[error("{0}: no file at this path")]
     NotFound(StorePath),
