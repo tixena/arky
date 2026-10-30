@@ -829,6 +829,7 @@ fn system_path(system: &dyn System, file: &Path) -> Result<PathBuf, Failure> {
 const fn store_code(error: &StoreError) -> u8 {
     match error {
         StoreError::InvalidPath(_) => 2,
+        StoreError::NotConfigured(_) => 3,
         StoreError::NotFound(_) => 6,
         StoreError::Backend(_) | StoreError::Conflict(_) | StoreError::Unsupported(_) | _ => 4,
     }
