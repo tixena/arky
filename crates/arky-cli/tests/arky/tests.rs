@@ -1,7 +1,5 @@
-#[cfg(any(feature = "minio", feature = "mongodb"))]
 use std::ffi::OsStr;
 use std::fs::{self, File};
-#[cfg(any(feature = "minio", feature = "mongodb"))]
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command as Process, Stdio};
@@ -31,24 +29,27 @@ const FORMS: &[&str] = &[
     "zip",
 ];
 
-/// The four variables a `MinIO` store reads: a server no process listens on,
-/// whose connection is refused at once, and keys no output may show.
-#[cfg(any(feature = "minio", feature = "mongodb"))]
-const MINIO_VARIABLES: [(&str, &str); 4] = [
-    ("ARKY_MINIO_ENDPOINT", "http://127.0.0.1:1"),
-    ("ARKY_MINIO_REGION", "us-east-1"),
+/// The keys a bucket store string with none reads, which no output may show.
+#[cfg(feature = "minio")]
+const KEYS: [(&str, &str); 2] = [
     ("AWS_ACCESS_KEY_ID", "arky-binary-access"),
     ("AWS_SECRET_ACCESS_KEY", "arky-binary-secret"),
 ];
+
+/// A `MinIO` server no process listens on, whose connection is refused at
+/// once.
+#[cfg(feature = "minio")]
+const MINIO: &str = "minio+http://127.0.0.1:1/notes/vault";
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n not a real picture";
 
 const REPORT: &str = "# Report\n\n![Logo](media/logo.png)\n";
 
-/// A server no process listens on, which the driver tries once and gives up
-/// on at once: no server selection to wait for, no retry.
+/// A MongoDB server no process listens on, which the driver tries once and
+/// gives up on at once, its files in a bucket of a `MinIO` server no process
+/// listens on.
 #[cfg(feature = "mongodb")]
-const UNREACHABLE: &str = "mongodb://127.0.0.1:1/?loadBalanced=true&retryReads=false";
+const UNREACHABLE: &str = "mongodb://127.0.0.1:1/notes/files?loadBalanced=true&retryReads=false&files=minio%2Bhttp%3A%2F%2F127.0.0.1%3A1%2Farky-files";
 
 /// Runs the binary in `folder` with `arguments`, `stdin` on standard input.
 fn arky(folder: &Path, arguments: &[&str], stdin: &[u8]) -> Assert {
@@ -60,29 +61,13 @@ fn arky(folder: &Path, arguments: &[&str], stdin: &[u8]) -> Assert {
         .assert()
 }
 
-/// Runs the binary in `folder` with `arguments`, `ARKY_MONGODB_URI` set to
-/// `uri` or removed when it is `None`, a bucket, and `MINIO_VARIABLES`.
-#[cfg(feature = "mongodb")]
-fn arky_with_uri(folder: &Path, arguments: &[&str], uri: Option<&OsStr>) -> Assert {
-    let mut command = Command::cargo_bin("arky").unwrap();
-    command.current_dir(folder).args(arguments);
-    command.env("ARKY_MONGODB_BUCKET", "arky-files");
-    command.envs(MINIO_VARIABLES);
-    if let Some(value) = uri {
-        command.env("ARKY_MONGODB_URI", value);
-    } else {
-        command.env_remove("ARKY_MONGODB_URI");
-    }
-    command.write_stdin(b"# B\n".as_slice()).assert()
-}
-
-/// Runs the binary in `folder` with `arguments`, `# B` on standard input,
-/// and of the variables of `MINIO_VARIABLES` only those in `variables`.
+/// Runs the binary in `folder` with `arguments`, `# B` on standard input, and
+/// of the variables of `KEYS` only those in `variables`.
 #[cfg(feature = "minio")]
-fn arky_with_minio(folder: &Path, arguments: &[&str], variables: &[(&str, &OsStr)]) -> Assert {
+fn arky_with_keys(folder: &Path, arguments: &[&str], variables: &[(&str, &OsStr)]) -> Assert {
     let mut command = Command::cargo_bin("arky").unwrap();
     command.current_dir(folder).args(arguments);
-    for (name, _) in MINIO_VARIABLES {
+    for (name, _) in KEYS {
         command.env_remove(name);
     }
     command.envs(variables.iter().copied());
@@ -130,14 +115,22 @@ fn fixtures() -> Vec<(String, String)> {
 }
 
 /// Asserts as `failed` does, and that standard error shows neither key of
-/// `MINIO_VARIABLES`.
+/// `KEYS`.
 #[cfg(feature = "minio")]
 fn failed_hiding_the_keys(ran: Assert, code: i32, line: &str) {
     let stderr = String::from_utf8(ran.get_output().stderr.clone()).unwrap();
-    for (_, key) in &MINIO_VARIABLES[2..] {
+    for (_, key) in KEYS {
         assert!(!stderr.contains(key), "{stderr}");
     }
     failed(ran, code, line);
+}
+
+/// The variables of `KEYS`.
+#[cfg(feature = "minio")]
+fn keys() -> Vec<(&'static str, &'static OsStr)> {
+    KEYS.iter()
+        .map(|(name, value)| (*name, OsStr::new(value)))
+        .collect()
 }
 
 /// A new folder under the target folder.
@@ -350,49 +343,86 @@ fn an_unknown_option_and_a_missing_path_exit_2() {
     arky(root, &["get"], b"").code(2_i32).stdout(is_empty());
 }
 
+#[test]
+fn a_saved_default_store_up_the_tree_is_where_a_get_reads_and_a_write_stores() {
+    let folder = folder();
+    let root = folder.path();
+    let config = "default = \"notes\"\n\n[stores.notes]\nurl = \"file:n\"\n";
+    fs::write(root.join("arky.toml"), config).unwrap();
+    fs::create_dir_all(root.join("n")).unwrap();
+    fs::create_dir_all(root.join("sub")).unwrap();
+    fs::write(root.join("n/a.md"), "# Notes\n").unwrap();
+    fs::write(root.join("sub/a.md"), "# Sub\n").unwrap();
+    let sub = root.join("sub");
+    arky(&sub, &["get", "a.md"], b"")
+        .success()
+        .stdout(eq("# Notes\n"));
+    arky(&sub, &["write", "b.md"], b"# B\n").success();
+    assert_eq!(fs::read_to_string(root.join("n/b.md")).unwrap(), "# B\n");
+    arky(&sub, &["get", "a.md", "-s", "."], b"")
+        .success()
+        .stdout(eq("# Sub\n"));
+    assert_eq!(names(&sub), ["a.md"]);
+}
+
+#[test]
+fn a_variable_a_store_string_names_left_out_or_not_utf8_exits_3_naming_it() {
+    let folder = folder();
+    let root = folder.path();
+    let ran = Command::cargo_bin("arky")
+        .unwrap()
+        .current_dir(root)
+        .args(["get", "a.md", "-s", "${VAULT}"])
+        .env_remove("VAULT")
+        .assert();
+    failed(ran, 3, "arky: VAULT is not set: `${VAULT}` reads it\n");
+    let not_utf8 = Command::cargo_bin("arky")
+        .unwrap()
+        .current_dir(root)
+        .args(["write", "b.md", "-s", "${VAULT}"])
+        .env("VAULT", OsStr::from_bytes(b"\xff"))
+        .write_stdin(b"# B\n".as_slice())
+        .assert();
+    failed(
+        not_utf8,
+        3,
+        "arky: VAULT is not UTF-8: `${VAULT}` reads it\n",
+    );
+    assert_eq!(names(root), Vec::<String>::new());
+}
+
+#[test]
+fn an_arky_store_that_is_not_utf8_exits_3_naming_it() {
+    let folder = folder();
+    let root = folder.path();
+    let ran = Command::cargo_bin("arky")
+        .unwrap()
+        .current_dir(root)
+        .args(["write", "b.md"])
+        .env("ARKY_STORE", OsStr::from_bytes(b"arky://\xff"))
+        .write_stdin(b"# B\n".as_slice())
+        .assert();
+    failed(
+        ran,
+        3,
+        "arky: ARKY_STORE is not UTF-8: it holds the store get and write use when --store names none\n",
+    );
+    assert_eq!(names(root), Vec::<String>::new());
+}
+
 #[cfg(not(feature = "mongodb"))]
 #[test]
 fn a_mongodb_store_exits_3_in_a_build_without_it() {
     let folder = folder();
     let root = folder.path();
     fs::write(root.join("a.md"), "# A\n").unwrap();
-    arky(
-        root,
-        &["get", "a.md", "--store", "mongodb:notes/files"],
-        b"",
-    )
-    .code(3_i32)
-    .stdout(is_empty())
-    .stderr(eq(
-        "arky: mongodb:notes/files: this arky is built without the MongoDB store\n",
-    ));
-}
-
-#[cfg(feature = "mongodb")]
-#[test]
-fn a_mongodb_store_with_no_connection_string_exits_3_with_one_line_naming_the_variable() {
-    let folder = folder();
-    let root = folder.path();
-    fs::write(root.join("a.md"), "# A\n").unwrap();
-    let get = ["get", "a.md", "--store", "mongodb:notes/files"];
-    arky_with_uri(root, &get, None)
+    let store = "mongodb://127.0.0.1:1/notes/files?files=x";
+    arky(root, &["get", "a.md", "--store", store], b"")
         .code(3_i32)
         .stdout(is_empty())
         .stderr(eq(
-            "arky: ARKY_MONGODB_URI is not set: it holds the MongoDB connection string\n",
+            "arky: `mongodb://127.0.0.1:1/notes/files?files=x`: no backend for mongodb in this build\n",
         ));
-    let not_utf8 = OsStr::from_bytes(b"mongodb://\xff");
-    arky_with_uri(
-        root,
-        &["write", "b.md", "-s", "mongodb:notes/files"],
-        Some(not_utf8),
-    )
-    .code(3_i32)
-    .stdout(is_empty())
-    .stderr(eq(
-        "arky: ARKY_MONGODB_URI is not UTF-8: it holds the MongoDB connection string\n",
-    ));
-    assert_eq!(names(root), ["a.md"]);
 }
 
 #[cfg(feature = "mongodb")]
@@ -400,11 +430,11 @@ fn a_mongodb_store_with_no_connection_string_exits_3_with_one_line_naming_the_va
 fn a_mongodb_server_that_cannot_be_reached_exits_4_naming_the_store() {
     let folder = folder();
     let root = folder.path();
-    let uri = Some(OsStr::new(UNREACHABLE));
-    let get = arky_with_uri(root, &["get", "a.md", "-s", "mongodb:notes/files"], uri);
-    failed(get, 4, "arky: mongodb:notes/files: ");
-    let write = arky_with_uri(root, &["write", "b.md", "-s", "mongodb:notes/files"], uri);
-    failed(write, 4, "arky: mongodb:notes/files: ");
+    let line = format!("arky: `{UNREACHABLE}`: ");
+    let get = arky_with_keys(root, &["get", "a.md", "-s", UNREACHABLE], &keys());
+    failed_hiding_the_keys(get, 4, &line);
+    let write = arky_with_keys(root, &["write", "b.md", "-s", UNREACHABLE], &keys());
+    failed_hiding_the_keys(write, 4, &line);
     assert_eq!(names(root), Vec::<String>::new());
 }
 
@@ -415,55 +445,46 @@ fn a_minio_store_exits_3_in_a_build_without_it() {
     let root = folder.path();
     arky(
         root,
-        &["write", "b.md", "-s", "minio:notes/drafts"],
+        &[
+            "write",
+            "b.md",
+            "-s",
+            "minio+http://127.0.0.1:1/notes/drafts",
+        ],
         b"# B\n",
     )
     .code(3_i32)
     .stdout(is_empty())
     .stderr(eq(
-        "arky: minio:notes/drafts: this arky is built without the MinIO store\n",
+        "arky: `minio+http://127.0.0.1:1/notes/drafts`: no backend for minio+http in this build\n",
     ));
     assert_eq!(names(root), Vec::<String>::new());
 }
 
 #[cfg(feature = "minio")]
 #[test]
-fn each_minio_variable_left_out_or_not_utf8_exits_3_with_one_line_naming_it() {
+fn each_aws_key_left_out_or_not_utf8_exits_3_with_one_line_naming_the_store_and_the_key() {
     let folder = folder();
     let root = folder.path();
     fs::write(root.join("a.md"), "# A\n").unwrap();
-    let all: Vec<(&str, &OsStr)> = MINIO_VARIABLES
-        .iter()
-        .map(|(name, value)| (*name, OsStr::new(value)))
-        .collect();
     let lines = [
-        "arky: ARKY_MINIO_ENDPOINT is not set: it holds the MinIO server's address\n",
-        "arky: ARKY_MINIO_REGION is not set: it holds the region the MinIO server expects\n",
-        "arky: AWS_ACCESS_KEY_ID is not set: it holds the MinIO access key\n",
-        "arky: AWS_SECRET_ACCESS_KEY is not set: it holds the MinIO secret key\n",
+        "arky: `minio+http://127.0.0.1:1/notes/vault`: AWS_ACCESS_KEY_ID is not set: it holds the MinIO access key\n",
+        "arky: `minio+http://127.0.0.1:1/notes/vault`: AWS_SECRET_ACCESS_KEY is not set: it holds the MinIO secret key\n",
     ];
     for (index, line) in lines.iter().enumerate() {
-        let mut variables = all.clone();
+        let mut variables = keys();
         variables.remove(index);
-        let get = ["get", "a.md", "--store", "minio:notes/vault"];
-        failed_hiding_the_keys(arky_with_minio(root, &get, &variables), 3, line);
-        let write = ["write", "b.md", "-s", "minio:notes/vault"];
-        failed_hiding_the_keys(arky_with_minio(root, &write, &variables), 3, line);
+        let get = ["get", "a.md", "--store", MINIO];
+        failed_hiding_the_keys(arky_with_keys(root, &get, &variables), 3, line);
+        let write = ["write", "b.md", "-s", MINIO];
+        failed_hiding_the_keys(arky_with_keys(root, &write, &variables), 3, line);
     }
-    let not_utf8 = OsStr::from_bytes(b"http://\xff");
-    let mut endpoint = all.clone();
-    endpoint[0] = ("ARKY_MINIO_ENDPOINT", not_utf8);
+    let mut secret = keys();
+    secret[1] = ("AWS_SECRET_ACCESS_KEY", OsStr::from_bytes(b"\xff"));
     failed_hiding_the_keys(
-        arky_with_minio(root, &["get", "a.md", "-s", "minio:notes/vault"], &endpoint),
+        arky_with_keys(root, &["write", "b.md", "-s", MINIO], &secret),
         3,
-        "arky: ARKY_MINIO_ENDPOINT is not UTF-8: it holds the MinIO server's address\n",
-    );
-    let mut secret = all;
-    secret[3] = ("AWS_SECRET_ACCESS_KEY", OsStr::from_bytes(b"\xff"));
-    failed_hiding_the_keys(
-        arky_with_minio(root, &["write", "b.md", "-s", "minio:notes/vault"], &secret),
-        3,
-        "arky: AWS_SECRET_ACCESS_KEY is not UTF-8: it holds the MinIO secret key\n",
+        "arky: `minio+http://127.0.0.1:1/notes/vault`: AWS_SECRET_ACCESS_KEY is not UTF-8: it holds the MinIO secret key\n",
     );
     assert_eq!(names(root), ["a.md"]);
 }
@@ -474,15 +495,10 @@ fn a_minio_server_that_cannot_be_reached_exits_4_naming_the_path_on_a_get_and_th
 {
     let folder = folder();
     let root = folder.path();
-    let variables: Vec<(&str, &OsStr)> = MINIO_VARIABLES
-        .iter()
-        .map(|(name, value)| (*name, OsStr::new(value)))
-        .collect();
-    let get = arky_with_minio(root, &["get", "a.md", "-s", "minio:notes"], &variables);
+    let get = arky_with_keys(root, &["get", "a.md", "-s", MINIO], &keys());
     failed_hiding_the_keys(get, 4, "arky: a.md: ");
-    let write = ["write", "b.md", "-s", "minio:notes/vault"];
-    let written = arky_with_minio(root, &write, &variables);
-    failed_hiding_the_keys(written, 4, "arky: minio:notes/vault: ");
+    let written = arky_with_keys(root, &["write", "b.md", "-s", MINIO], &keys());
+    failed_hiding_the_keys(written, 4, "arky: `minio+http://127.0.0.1:1/notes/vault`: ");
     assert_eq!(names(root), Vec::<String>::new());
 }
 

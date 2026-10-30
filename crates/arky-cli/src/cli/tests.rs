@@ -57,7 +57,7 @@ fn the_short_and_long_options_parse() {
         "-o",
         "a.bin",
         "-s",
-        "minio:notes",
+        "arky://notes",
         "--allow-missing",
     ])
     .unwrap();
@@ -71,8 +71,8 @@ fn the_short_and_long_options_parse() {
                 frontmatter: SyntaxArg::Toml,
                 output: Some(output),
                 path: _,
-                store: Some(StoreArg::Minio { bucket, prefix: None }),
-            } if output.as_os_str() == "a.bin" && bucket == "notes"
+                store: Some(StoreArg(store)),
+            } if output.as_os_str() == "a.bin" && store == "arky://notes"
         ),
         "{get:?}"
     );
@@ -85,7 +85,7 @@ fn the_short_and_long_options_parse() {
         "--input",
         "a.json",
         "--store",
-        "mongodb:notes/files",
+        "s3://notes/vault?region=eu-west-1",
         "--allow-missing",
     ])
     .unwrap();
@@ -98,8 +98,8 @@ fn the_short_and_long_options_parse() {
                 frontmatter: SyntaxArg::Yaml,
                 input: Some(input),
                 path: _,
-                store: Some(StoreArg::Mongodb { collection, database }),
-            } if input.as_os_str() == "a.json" && collection == "files" && database == "notes"
+                store: Some(StoreArg(store)),
+            } if input.as_os_str() == "a.json" && store == "s3://notes/vault?region=eu-west-1"
         ),
         "{write:?}"
     );
@@ -155,14 +155,14 @@ fn fix_takes_an_optional_path_and_an_optional_store() {
         ),
         "{bare:?}"
     );
-    let named = Cli::try_parse_from(["arky", "fix", "notes", "-s", "minio:arky/vault"]).unwrap();
+    let named = Cli::try_parse_from(["arky", "fix", "notes", "-s", "arky://work/vault"]).unwrap();
     assert!(
         matches!(
             &named.command,
             Command::Fix {
                 path: Some(path),
-                store: Some(StoreArg::Minio { bucket, prefix: Some(prefix) }),
-            } if path.as_os_str() == "notes" && bucket == "arky" && prefix == "vault"
+                store: Some(StoreArg(store)),
+            } if path.as_os_str() == "notes" && store == "arky://work/vault"
         ),
         "{named:?}"
     );
@@ -175,7 +175,7 @@ fn asset_finish_deletions_parses_its_store() {
         "asset",
         "finish-deletions",
         "--store",
-        "mongodb:notes/files",
+        "arky://docs",
     ])
     .unwrap();
     assert!(
@@ -183,9 +183,9 @@ fn asset_finish_deletions_parses_its_store() {
             &finish.command,
             Command::Asset {
                 command: AssetCommand::FinishDeletions {
-                    store: StoreArg::Mongodb { collection, database },
+                    store: StoreArg(store),
                 },
-            } if collection == "files" && database == "notes"
+            } if store == "arky://docs"
         ),
         "{finish:?}"
     );
@@ -235,70 +235,35 @@ fn embed_without_an_output_is_a_usage_error_with_code_2() {
 }
 
 #[test]
-fn each_store_value_parses_and_displays_as_it_was_written() {
-    let stores = [
-        (
-            "minio:notes",
-            StoreArg::Minio {
-                bucket: "notes".to_owned(),
-                prefix: None,
-            },
-        ),
-        (
-            "minio:notes/drafts/2026",
-            StoreArg::Minio {
-                bucket: "notes".to_owned(),
-                prefix: Some("drafts/2026".to_owned()),
-            },
-        ),
-        (
-            "mongodb:notes/files",
-            StoreArg::Mongodb {
-                collection: "files".to_owned(),
-                database: "notes".to_owned(),
-            },
-        ),
-        (
-            "s3:notes",
-            StoreArg::S3 {
-                bucket: "notes".to_owned(),
-                prefix: None,
-            },
-        ),
-        (
-            "s3:notes/drafts/2026",
-            StoreArg::S3 {
-                bucket: "notes".to_owned(),
-                prefix: Some("drafts/2026".to_owned()),
-            },
-        ),
-    ];
-    for (text, expected) in stores {
-        let store = text.parse::<StoreArg>().unwrap();
-        assert_eq!(store, expected);
-        assert_eq!(store.to_string(), text);
-    }
-}
-
-#[test]
-fn a_store_of_another_shape_is_a_usage_error_with_code_2() {
+fn any_store_text_parses_as_it_was_written_for_the_backends_to_read() {
     for text in [
         "",
         "notes",
-        "minio:",
-        "minio:/drafts",
-        "minio:notes/",
-        "mongodb:",
-        "mongodb:notes",
-        "mongodb:/files",
-        "mongodb:notes/",
-        "s3:",
-        "s3:/drafts",
-        "s3:notes/",
+        "./notes:drafts",
+        "file:notes",
+        "arky://notes/drafts",
+        "minio+http://127.0.0.1:1/notes/drafts?region=us-east-1",
+        "mongodb://h/notes/docs?files=arky%3A%2F%2Fmedia",
+        "s3://notes?region=eu-west-1",
+        "minio:notes",
+        "${VAULT}",
     ] {
-        let error = Cli::try_parse_from(["arky", "get", "a.md", "-s", text]).unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::ValueValidation, "{text}");
-        assert_eq!(error.exit_code(), 2_i32, "{text}");
+        let parsed = Cli::try_parse_from(["arky", "get", "a.md", "-s", text]).unwrap();
+        assert!(
+            matches!(
+                &parsed.command,
+                Command::Get {
+                    allow_missing: _,
+                    embed: _,
+                    format: _,
+                    frontmatter: _,
+                    output: _,
+                    path: _,
+                    store: Some(StoreArg(store)),
+                } if store == text
+            ),
+            "{parsed:?}"
+        );
     }
 }
 

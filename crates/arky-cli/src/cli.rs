@@ -1,7 +1,5 @@
 //! The command line: the commands, their options and the values they take.
 
-use core::fmt;
-use core::str::FromStr;
 use std::path::PathBuf;
 
 use arky::forms::Form;
@@ -12,7 +10,7 @@ pub enum AssetCommand {
     /// Finishes each deletion of an embedded file that stopped halfway. Run it only while no other
     /// arky writes to the store.
     FinishDeletions {
-        /// The MongoDB store, `mongodb:<database>/<collection>`.
+        /// The store: a store string or arky://<name>. Only a MongoDB store keeps deletions.
         #[arg(short, long)]
         store: StoreArg,
     },
@@ -23,8 +21,8 @@ pub enum AssetCommand {
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
-    /// The configuration file, in place of `ARKY_CONFIG` and of `arky.toml` in the current
-    /// folder.
+    /// The configuration file, read alone, in place of `ARKY_CONFIG` and of the `arky.toml`
+    /// files from the current folder up.
     #[arg(short = 'c', long, global = true, value_name = "FILE")]
     pub config: Option<PathBuf>,
 }
@@ -38,13 +36,16 @@ pub enum Command {
     },
     /// Repairs what needs no decision: removes each lock a save left behind that has expired.
     Fix {
-        /// The folder to repair, the current folder when it is left out.
+        /// The folder to repair: in the file system, the current folder when it is left out; in
+        /// --store, the whole store when it is left out.
         path: Option<PathBuf>,
-        /// The store PATH is in, in place of the file system.
+        /// The store PATH is in: a store string, arky://<name> or a folder, in place of the file
+        /// system. A path written after the store is a folder inside it.
         #[arg(short, long)]
         store: Option<StoreArg>,
     },
-    /// Writes the document at PATH to standard output, or to --output.
+    /// Writes the document at PATH to standard output, or to --output. PATH may be a store
+    /// string, such as arky://<name>/<path>.
     Get {
         path: PathBuf,
         /// Gives the document though a file it embeds is missing or leaves its folder, its embed
@@ -63,11 +64,14 @@ pub enum Command {
         /// The file the document is written to, in place of standard output.
         #[arg(short, long, value_name = "FILE")]
         output: Option<PathBuf>,
-        /// The store PATH is in, in place of the file system.
+        /// The store PATH is in: a store string, arky://<name> or a folder, in place of
+        /// `ARKY_STORE`, the default of `arky.toml` and the file system. A path written after the
+        /// store is a folder inside it; --store never names the document.
         #[arg(short, long)]
         store: Option<StoreArg>,
     },
-    /// Stores at PATH the document read from standard input, or from --input.
+    /// Stores at PATH the document read from standard input, or from --input. PATH may be a
+    /// store string, such as arky://<name>/<path>.
     Write {
         path: PathBuf,
         /// Stores the document though a file it embeds is missing or leaves its folder, its embed
@@ -83,7 +87,9 @@ pub enum Command {
         /// The file the document is read from, in place of standard input.
         #[arg(short, long, value_name = "FILE")]
         input: Option<PathBuf>,
-        /// The store PATH is in, in place of the file system.
+        /// The store PATH is in: a store string, arky://<name> or a folder, in place of
+        /// `ARKY_STORE`, the default of `arky.toml` and the file system. A path written after the
+        /// store is a folder inside it; --store never names the document.
         #[arg(short, long)]
         store: Option<StoreArg>,
     },
@@ -110,95 +116,15 @@ impl From<FormatArg> for Form {
     }
 }
 
-/// A store named on the command line, a place inside a server:
-/// `minio:<bucket>`, `minio:<bucket>/<prefix>`, `mongodb:<database>/<collection>`,
-/// `s3:<bucket>` or `s3:<bucket>/<prefix>`.
+/// A store as the command line names it: a store string
+/// (`s3://acme/vault?region=eu-west-1`), a saved store (`arky://notes`) or a
+/// folder (`./notes`). The backends read it, so any text parses.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StoreArg {
-    Minio {
-        bucket: String,
-        prefix: Option<String>,
-    },
-    Mongodb {
-        collection: String,
-        database: String,
-    },
-    S3 {
-        bucket: String,
-        prefix: Option<String>,
-    },
-}
+pub struct StoreArg(pub String);
 
-impl StoreArg {
-    /// The store of `minio:` and `place`, `<bucket>` or `<bucket>/<prefix>`.
-    fn minio(place: &str) -> Option<Self> {
-        bucket_and_prefix(place).map(|(bucket, prefix)| Self::Minio {
-            bucket: bucket.to_owned(),
-            prefix: prefix.map(str::to_owned),
-        })
-    }
-
-    /// The store of `mongodb:` and `place`, `<database>/<collection>`.
-    fn mongodb(place: &str) -> Option<Self> {
-        place
-            .split_once('/')
-            .filter(|(database, collection)| !database.is_empty() && !collection.is_empty())
-            .map(|(database, collection)| Self::Mongodb {
-                collection: collection.to_owned(),
-                database: database.to_owned(),
-            })
-    }
-
-    /// The store of `s3:` and `place`, `<bucket>` or `<bucket>/<prefix>`.
-    fn s3(place: &str) -> Option<Self> {
-        bucket_and_prefix(place).map(|(bucket, prefix)| Self::S3 {
-            bucket: bucket.to_owned(),
-            prefix: prefix.map(str::to_owned),
-        })
-    }
-}
-
-impl fmt::Display for StoreArg {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Minio {
-                bucket,
-                prefix: None,
-            } => write!(f, "minio:{bucket}"),
-            Self::Minio {
-                bucket,
-                prefix: Some(prefix),
-            } => write!(f, "minio:{bucket}/{prefix}"),
-            Self::Mongodb {
-                collection,
-                database,
-            } => write!(f, "mongodb:{database}/{collection}"),
-            Self::S3 {
-                bucket,
-                prefix: None,
-            } => write!(f, "s3:{bucket}"),
-            Self::S3 {
-                bucket,
-                prefix: Some(prefix),
-            } => write!(f, "s3:{bucket}/{prefix}"),
-        }
-    }
-}
-
-impl FromStr for StoreArg {
-    type Err = String;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let store = match text.split_once(':') {
-            Some(("minio", place)) => Self::minio(place),
-            Some(("mongodb", place)) => Self::mongodb(place),
-            Some(("s3", place)) => Self::s3(place),
-            Some(_) | None => None,
-        };
-        store.ok_or_else(|| {
-            "a store is minio:<bucket>, minio:<bucket>/<prefix>, s3:<bucket>, s3:<bucket>/<prefix> or mongodb:<database>/<collection>"
-                .to_owned()
-        })
+impl From<String> for StoreArg {
+    fn from(text: String) -> Self {
+        Self(text)
     }
 }
 
@@ -215,15 +141,6 @@ impl From<SyntaxArg> for FrontmatterFormat {
             SyntaxArg::Yaml => Self::Yaml,
         }
     }
-}
-
-/// The bucket and the key prefix of `place`, `<bucket>` or `<bucket>/<prefix>`,
-/// neither empty.
-pub fn bucket_and_prefix(place: &str) -> Option<(&str, Option<&str>)> {
-    let (bucket, prefix) = place
-        .split_once('/')
-        .map_or((place, None), |(bucket, prefix)| (bucket, Some(prefix)));
-    (!bucket.is_empty() && prefix.is_none_or(|part| !part.is_empty())).then_some((bucket, prefix))
 }
 
 #[cfg(test)]

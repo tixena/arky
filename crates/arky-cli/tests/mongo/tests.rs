@@ -18,6 +18,7 @@ use mongodb::bson::{Document, doc};
 use mongodb::{Client, Collection};
 use os_shim::real::RealSystem;
 use predicates::ord::eq;
+use predicates::str::is_empty;
 use tokio::runtime::{Builder, Runtime};
 
 /// A bucket no other test uses, so it is missing until a write creates it.
@@ -28,6 +29,8 @@ const CREATED_DATABASE: &str = "arky_test_binary_created";
 const DATABASE: &str = "arky_test_binary_copies";
 
 const FINISHED_DATABASE: &str = "arky_test_binary_finished";
+
+const FIXED_DATABASE: &str = "arky_test_binary_fixed";
 
 /// A prefix of its own, so its listing holds no other test's objects.
 const FINISHED_PREFIX: &str = "binary/finished";
@@ -56,17 +59,12 @@ const REPORT: &str = "# Report\n\n![Logo](media/logo.png)\n";
 /// The machine the stores of these tests run on.
 static MACHINE: RealSystem = RealSystem::new();
 
-/// Runs the binary in `root` with `arguments`, its MongoDB store's files
-/// under `prefix` in the bucket.
-fn arky_on(root: &Path, prefix: &str, arguments: &[&str]) -> Assert {
+/// Runs the binary in `root` with `arguments`.
+fn arky_in(root: &Path, arguments: &[&str]) -> Assert {
     Command::cargo_bin("arky")
         .unwrap()
         .current_dir(root)
         .args(arguments)
-        .env("ARKY_MONGODB_URI", uri())
-        .env("ARKY_MONGODB_BUCKET", format!("{}/{prefix}", bucket()))
-        .env("ARKY_MINIO_ENDPOINT", endpoint())
-        .env("ARKY_MINIO_REGION", REGION)
         .assert()
 }
 
@@ -78,6 +76,20 @@ fn bucket() -> String {
 /// The server's address `just test-stores` sets.
 fn endpoint() -> String {
     env::var("ARKY_TEST_MINIO_ENDPOINT").unwrap()
+}
+
+/// `text` percent-encoded, every byte but the unreserved ones, as a store
+/// string in the option `files` is written.
+fn encoded(text: &str) -> String {
+    text.bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
 }
 
 /// The 21 markdown fixture files of arky, by name.
@@ -135,15 +147,19 @@ fn pipe(root: &Path, name: &str, store: &str) {
     let written = Process::new(cargo_bin("arky"))
         .current_dir(root)
         .args(["write", name, "--store", store, "--allow-missing"])
-        .env("ARKY_MONGODB_URI", uri())
-        .env("ARKY_MONGODB_BUCKET", format!("{}/{PREFIX}", bucket()))
-        .env("ARKY_MINIO_ENDPOINT", endpoint())
-        .env("ARKY_MINIO_REGION", REGION)
         .stdin(get.stdout.take().unwrap())
         .status()
         .unwrap();
     assert!(get.wait().unwrap().success(), "{name}");
     assert!(written.success(), "{name}");
+}
+
+/// The store string of the collection `files` of `database`, its files in
+/// `place`, `<bucket>/<prefix>` on the server `just test-stores` starts, the
+/// keys read from the environment.
+fn store(database: &str, place: &str) -> String {
+    let files = format!("minio+{}/{place}", endpoint());
+    format!("{}/{database}/files?files={}", uri(), encoded(&files))
 }
 
 /// The connection string `just test-stores` sets.
@@ -161,7 +177,7 @@ fn each_fixture_piped_into_mongodb_and_read_back_is_arkys_form_as_mongodb_keeps_
     let expected = AnyStore::Mongo(opened.unwrap());
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let root = folder.path();
-    let store = format!("mongodb:{DATABASE}/files");
+    let store = store(DATABASE, &format!("{}/{PREFIX}", bucket()));
     // `obsidian_note.md` embeds a picture this folder does not hold.
     for (name, source) in fixtures() {
         fs::write(root.join(&name), &source).unwrap();
@@ -171,10 +187,6 @@ fn each_fixture_piped_into_mongodb_and_read_back_is_arkys_form_as_mongodb_keeps_
             .unwrap()
             .current_dir(root)
             .args(["get", &name, "--store", &store, "--allow-missing"])
-            .env("ARKY_MONGODB_URI", uri())
-            .env("ARKY_MONGODB_BUCKET", format!("{}/{PREFIX}", bucket()))
-            .env("ARKY_MINIO_ENDPOINT", endpoint())
-            .env("ARKY_MINIO_REGION", REGION)
             .assert()
             .success()
             .stdout(eq(kept.as_slice()));
@@ -191,7 +203,10 @@ fn asset_finish_deletions_finishes_a_deletion_that_stopped_and_a_write_of_its_by
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let root = folder.path();
-    let store = format!("mongodb:{FINISHED_DATABASE}/files");
+    let store = store(
+        FINISHED_DATABASE,
+        &format!("{}/{FINISHED_PREFIX}", bucket()),
+    );
     fs::create_dir_all(root.join("draft/media")).unwrap();
     fs::write(root.join("draft/report.md"), REPORT).unwrap();
     fs::write(root.join("draft/media/logo.png"), PNG).unwrap();
@@ -207,7 +222,7 @@ fn asset_finish_deletions_finishes_a_deletion_that_stopped_and_a_write_of_its_by
         "--store",
         &store,
     ];
-    arky_on(root, FINISHED_PREFIX, &embedding).success();
+    arky_in(root, &embedding).success();
     let stored = runtime.block_on(async { records.find_one(doc! {}).await.unwrap().unwrap() });
     let hash = stored.get_str("_id").unwrap();
     let plain = [
@@ -218,7 +233,7 @@ fn asset_finish_deletions_finishes_a_deletion_that_stopped_and_a_write_of_its_by
         "--store",
         &store,
     ];
-    arky_on(root, FINISHED_PREFIX, &plain).success();
+    arky_in(root, &plain).success();
     let left = runtime.block_on(async { records.count_documents(doc! {}).await.unwrap() });
     assert_eq!(left, 0);
 
@@ -236,9 +251,7 @@ fn asset_finish_deletions_finishes_a_deletion_that_stopped_and_a_write_of_its_by
     runtime.block_on(async { records.insert_one(held).await.unwrap() });
     let finish = ["asset", "finish-deletions", "--store", &store];
     let line = format!("{object}\n");
-    arky_on(root, FINISHED_PREFIX, &finish)
-        .success()
-        .stdout(eq(line.as_bytes()));
+    arky_in(root, &finish).success().stdout(eq(line.as_bytes()));
 
     let other = [
         "write",
@@ -248,7 +261,7 @@ fn asset_finish_deletions_finishes_a_deletion_that_stopped_and_a_write_of_its_by
         "--store",
         &store,
     ];
-    arky_on(root, FINISHED_PREFIX, &other).success();
+    arky_in(root, &other).success();
     let get = [
         "get",
         "notes/other.md",
@@ -257,7 +270,7 @@ fn asset_finish_deletions_finishes_a_deletion_that_stopped_and_a_write_of_its_by
         "--store",
         &store,
     ];
-    arky_on(root, FINISHED_PREFIX, &get).success();
+    arky_in(root, &get).success();
     assert_eq!(fs::read(root.join("out/media/logo.png")).unwrap(), PNG);
     runtime.block_on(async { client.database(FINISHED_DATABASE).drop().await.unwrap() });
 }
@@ -268,7 +281,10 @@ fn a_second_write_with_a_new_picture_deletes_the_old_object_and_its_record_and_g
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let root = folder.path();
-    let store = format!("mongodb:{REPLACED_DATABASE}/files");
+    let store = store(
+        REPLACED_DATABASE,
+        &format!("{}/{REPLACED_PREFIX}", bucket()),
+    );
     fs::create_dir_all(root.join("draft/media")).unwrap();
     fs::write(root.join("draft/report.md"), REPORT).unwrap();
     for picture in [PNG, OTHER_PNG] {
@@ -281,7 +297,7 @@ fn a_second_write_with_a_new_picture_deletes_the_old_object_and_its_record_and_g
             "--store",
             &store,
         ];
-        arky_on(root, REPLACED_PREFIX, &write).success();
+        arky_in(root, &write).success();
     }
     let get = [
         "get",
@@ -291,7 +307,7 @@ fn a_second_write_with_a_new_picture_deletes_the_old_object_and_its_record_and_g
         "--store",
         &store,
     ];
-    arky_on(root, REPLACED_PREFIX, &get).success();
+    arky_in(root, &get).success();
     assert_eq!(
         fs::read(root.join("out/media/logo.png")).unwrap(),
         OTHER_PNG
@@ -320,7 +336,7 @@ fn a_write_whose_files_bucket_is_missing_creates_it_and_keeps_the_picture_there(
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let root = folder.path();
-    let store = format!("mongodb:{CREATED_DATABASE}/files");
+    let store = store(CREATED_DATABASE, &format!("{CREATED_BUCKET}/files"));
     fs::create_dir_all(root.join("draft/media")).unwrap();
     fs::write(root.join("draft/report.md"), REPORT).unwrap();
     fs::write(root.join("draft/media/logo.png"), PNG).unwrap();
@@ -335,10 +351,6 @@ fn a_write_whose_files_bucket_is_missing_creates_it_and_keeps_the_picture_there(
             "--store",
             &store,
         ])
-        .env("ARKY_MONGODB_URI", uri())
-        .env("ARKY_MONGODB_BUCKET", format!("{CREATED_BUCKET}/files"))
-        .env("ARKY_MINIO_ENDPOINT", endpoint())
-        .env("ARKY_MINIO_REGION", REGION)
         .assert()
         .success();
     runtime.block_on(async {
@@ -357,5 +369,23 @@ fn a_write_whose_files_bucket_is_missing_creates_it_and_keeps_the_picture_there(
         assert_eq!(files.read(&objects[0]).await.unwrap().bytes, PNG);
         let client = Client::with_uri_str(uri()).await.unwrap();
         client.database(CREATED_DATABASE).drop().await.unwrap();
+    });
+}
+
+#[test]
+fn fix_of_a_mongodb_store_exits_2_as_it_keeps_no_locks() {
+    let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+    let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let store = store(FIXED_DATABASE, &format!("{}/binary/fixed", bucket()));
+    let line = format!(
+        "arky: `{store}` keeps no locks: fix takes the file system, or a file, MinIO or S3 store\n"
+    );
+    arky_in(folder.path(), &["fix", "-s", &store])
+        .code(2_i32)
+        .stdout(is_empty())
+        .stderr(eq(line.as_str()));
+    runtime.block_on(async {
+        let client = Client::with_uri_str(uri()).await.unwrap();
+        client.database(FIXED_DATABASE).drop().await.unwrap();
     });
 }

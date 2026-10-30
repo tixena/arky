@@ -1,49 +1,44 @@
 //! The commands, run over a system and the three standard streams.
 
 use core::fmt::Display;
-#[cfg(not(feature = "mongodb"))]
-use core::future::{self, Ready};
-use core::time::Duration;
 use std::env::VarError;
-use std::io::{self, ErrorKind, Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 use arky::bundle::Missing;
 use arky::forms::{Form, encode};
-use arky::parser::ast::{Mapping, Value};
-use arky::parser::read_toml;
 use arky::writer::WriteOptions;
-use arky_store::any::AnyStore;
+use arky_store::backend::Backends;
+use arky_store::backend::arky::SavedBackend;
+use arky_store::config::Configuration;
 use arky_store::document::{self, DocumentError};
 use arky_store::file::FileStore;
 use arky_store::lock::LockSettings;
-#[cfg(feature = "mongodb")]
-use arky_store::mongo::MongoStore;
-#[cfg(any(feature = "minio", feature = "s3"))]
-use arky_store::object::EnsureBucket;
-#[cfg(any(feature = "minio", feature = "mongodb"))]
-use arky_store::object::ObjectConfig;
-#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
-use arky_store::object::ObjectStore;
-#[cfg(feature = "s3")]
-use arky_store::object::S3ObjectConfig;
-use arky_store::{Precondition, Revision, Store as _, StoreError, StorePath};
+use arky_store::{DynStore, Precondition, Revision, StoreError, StorePath};
 use os_shim::System;
-#[cfg(any(feature = "minio", feature = "s3"))]
-use os_shim::bucket::Bucket;
-#[cfg(any(feature = "minio", feature = "mongodb"))]
-use os_shim::bucket::MinioBucket;
-#[cfg(feature = "s3")]
-use os_shim::bucket::S3Bucket;
 
-#[cfg(feature = "mongodb")]
-use crate::cli::bucket_and_prefix;
 use crate::cli::{AssetCommand, Cli, Command, FormatArg, StoreArg, SyntaxArg};
 
-/// The configuration file arky reads in the current folder when none is
-/// named.
-const CONFIG_FILE: &str = "arky.toml";
+/// The variable naming the configuration file when `--config` names none.
+const CONFIG_VARIABLE: &str = "ARKY_CONFIG";
+
+/// The short forms that named a store before store strings, refused rather
+/// than read as folders: each one's scheme, its kind of store, and the store
+/// string of such a store.
+const SHORT_FORMS: [(&str, &str, &str); 3] = [
+    ("minio", "a MinIO store", "minio+http://<host>/<bucket>"),
+    (
+        "mongodb",
+        "a MongoDB store",
+        "mongodb://<host>/<database>/<collection>?files=<MinIO store>",
+    ),
+    ("s3", "an S3 store", "s3://<bucket>?region=<region>"),
+];
+
+/// The variable naming the store of a get or a write when `--store` names
+/// none.
+const STORE_VARIABLE: &str = "ARKY_STORE";
 
 /// Why a command stopped: the line after `arky: `, and the exit code.
 struct Failure {
@@ -51,9 +46,24 @@ struct Failure {
     message: String,
 }
 
+/// The store a get or a write works on, the path in it, and its name in
+/// messages: `None` for the file system, which messages name by the path.
+struct Located<'store> {
+    at: StorePath,
+    name: Option<Named>,
+    store: Box<dyn DynStore + 'store>,
+}
+
+/// The text of a store and how messages name it: the text in backticks, or
+/// the variable that holds it, as no message shows a variable's value.
+struct Named {
+    label: String,
+    text: String,
+}
+
 /// What `--format`, `--frontmatter` and `--allow-missing` ask for: the form,
 /// the options the document is written with, and what an embed with no file
-/// does; and the lock the configuration file sets.
+/// does; and the lock the configuration sets.
 struct Settings {
     form: Form,
     lock: LockSettings,
@@ -61,32 +71,38 @@ struct Settings {
     options: WriteOptions,
 }
 
+/// What every command works over: the system, the current folder, the
+/// configuration, and the backends that open a store string.
+struct Setup<'system> {
+    backends: Backends,
+    configuration: Configuration,
+    current: PathBuf,
+    system: &'system dyn System,
+}
+
 impl Failure {
     const fn configuration(message: String) -> Self {
         Self { code: 3, message }
     }
 
-    /// `what` went wrong with the configuration file `file`.
-    fn in_file(file: &Path, what: &dyn Display) -> Self {
-        Self::configuration(format!("{}: {what}", file.display()))
-    }
-
-    /// `asset finish-deletions` given `arg`, a store that keeps no deletions.
-    fn keeps_no_deletions(arg: &StoreArg) -> Self {
+    /// `asset finish-deletions` given `name`, a store that keeps no deletions.
+    fn keeps_no_deletions(name: &Named) -> Self {
         Self {
             code: 2,
             message: format!(
-                "{arg} keeps no deletions: asset finish-deletions takes --store mongodb:<database>/<collection>"
+                "{} keeps no deletions: asset finish-deletions takes a MongoDB store",
+                name.label
             ),
         }
     }
 
-    /// `fix` given `arg`, a store that keeps no locks.
-    fn keeps_no_locks(arg: &StoreArg) -> Self {
+    /// `fix` given `name`, a store that keeps no locks.
+    fn keeps_no_locks(name: &Named) -> Self {
         Self {
             code: 2,
             message: format!(
-                "{arg} keeps no locks: fix takes the file system, --store minio:<bucket> or --store s3:<bucket>"
+                "{} keeps no locks: fix takes the file system, or a file, MinIO or S3 store",
+                name.label
             ),
         }
     }
@@ -112,6 +128,14 @@ impl Failure {
         }
     }
 
+    /// The configuration did not read; `error` names the file.
+    fn of_configuration(error: &StoreError) -> Self {
+        Self {
+            code: store_code(error),
+            message: error.to_string(),
+        }
+    }
+
     fn of_document(path: &Path, at: &StorePath, error: &DocumentError) -> Self {
         let code = match error {
             DocumentError::Form { error: _, path: _ } => 1,
@@ -125,27 +149,62 @@ impl Failure {
         Self::naming(path, at, store_code(error), error)
     }
 
-    /// The store `arg` names failed to open.
-    #[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
-    fn store(arg: &StoreArg, error: &StoreError) -> Self {
-        Self {
-            code: store_code(error),
-            message: format!("{arg}: {error}"),
-        }
-    }
-
     fn stream(name: &str, error: &io::Error) -> Self {
         Self {
             code: 4,
             message: format!("{name}: {error}"),
         }
     }
+}
 
-    #[cfg(not(all(feature = "minio", feature = "mongodb", feature = "s3")))]
-    fn unbuilt(arg: &StoreArg, store: &str) -> Self {
+impl Located<'_> {
+    /// Creates the place the store keeps its files when it is missing, such
+    /// as a bucket. A store that has none has nothing to create.
+    async fn ensure(&self, path: &Path) -> Result<(), Failure> {
+        match self.store.ensure_container().await {
+            Ok(()) | Err(StoreError::Unsupported(_)) => Ok(()),
+            Err(error) => Err(self.name.as_ref().map_or_else(
+                || Failure::of_store(path, None, &error),
+                |name| name.failure(&error),
+            )),
+        }
+    }
+}
+
+impl Named {
+    /// `error` of the store this names, on one line that names it.
+    fn failure(&self, error: &StoreError) -> Failure {
+        Failure {
+            code: store_code(error),
+            message: self.message(error),
+        }
+    }
+
+    /// `what` naming this store: in place of the text in backticks where it
+    /// shows it, else in front of it.
+    fn message(&self, what: &dyn Display) -> String {
+        let shown = what.to_string();
+        let quoted = format!("`{}`", self.text);
+        if shown.contains(&quoted) {
+            shown.replace(&quoted, &self.label)
+        } else {
+            format!("{}: {shown}", self.label)
+        }
+    }
+
+    /// The store string `text`, the value of the variable `variable`.
+    fn variable(variable: &str, text: String) -> Self {
         Self {
-            code: 3,
-            message: format!("{arg}: this arky is built without the {store} store"),
+            label: variable.to_owned(),
+            text,
+        }
+    }
+
+    /// The store string `text`, written on the command line or saved.
+    fn written(text: &str) -> Self {
+        Self {
+            label: format!("`{text}`"),
+            text: text.to_owned(),
         }
     }
 }
@@ -173,89 +232,188 @@ impl Settings {
     }
 }
 
-/// `path` as the command line wrote it, as a path of a store `--store` names.
-#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
+impl<'system> Setup<'system> {
+    /// The store a get or a write of `path` works on, and the path in it: the
+    /// store `path` names as a store string; else `path` as written, in the
+    /// first store given of `named` (`--store`), `ARKY_STORE` and the
+    /// configuration's `default`; else `path` against the current folder, in
+    /// the file system.
+    async fn locate(&self, named: Option<&StoreArg>, path: &Path) -> Result<Located<'_>, Failure> {
+        if let Some(text) = path.to_str() {
+            let opened = self
+                .backends
+                .open_path(text, &self.current, self.configuration.lock, self.system)
+                .await
+                .map_err(|error| Named::written(text).failure(&error))?;
+            if let Some((store, at)) = opened {
+                let name = Some(Named::written(text));
+                return Ok(Located { at, name, store });
+            }
+        }
+        let chosen = if let Some(StoreArg(text)) = named {
+            Some(Named::written(text))
+        } else if let Some(text) = variable(
+            self.system,
+            STORE_VARIABLE,
+            "the store get and write use when --store names none",
+        )? {
+            Some(Named::variable(STORE_VARIABLE, text))
+        } else {
+            self.configuration
+                .default
+                .as_ref()
+                .map(|default| Named::written(&format!("arky://{default}")))
+        };
+        let Some(name) = chosen else {
+            let at = store_path(self.system, path)?;
+            let store = Box::new(machine(self.system, self.configuration.lock));
+            return Ok(Located {
+                at,
+                name: None,
+                store,
+            });
+        };
+        let at = as_written(path)?;
+        let store = self.open(&name).await?;
+        Ok(Located {
+            at,
+            name: Some(name),
+            store,
+        })
+    }
+
+    /// The configuration and the backends of `system`: the one file `named`
+    /// (`--config`) or `ARKY_CONFIG` names, else every `arky.toml` from the
+    /// current folder up; the built-in backends and the saved stores.
+    fn new(system: &'system dyn System, named: Option<&Path>) -> Result<Self, Failure> {
+        let current = system
+            .current_dir()
+            .map_err(|error| Failure::stream("the current folder", &error))?;
+        let file = match named {
+            Some(file) => Some(file.to_path_buf()),
+            None => variable(system, CONFIG_VARIABLE, "the configuration file")?.map(PathBuf::from),
+        };
+        let configuration = file
+            .map_or_else(
+                || Configuration::discover(system, &current),
+                |one| Configuration::read(system, &one),
+            )
+            .map_err(|error| Failure::of_configuration(&error))?;
+        let backends = Backends::default().with(SavedBackend::new(configuration.stores.clone()));
+        Ok(Self {
+            backends,
+            configuration,
+            current,
+            system,
+        })
+    }
+
+    /// The store `name` names, opened against the current folder; a short form
+    /// is refused rather than read as a folder.
+    async fn open(&self, name: &Named) -> Result<Box<dyn DynStore + '_>, Failure> {
+        if let Some(refusal) = short_form(&name.text) {
+            return Err(Failure {
+                code: 2,
+                message: name.message(&refusal),
+            });
+        }
+        self.backends
+            .open(
+                &name.text,
+                &self.current,
+                self.configuration.lock,
+                self.system,
+            )
+            .await
+            .map_err(|error| name.failure(&error))
+    }
+}
+
+/// `path` as the command line wrote it, as a path of a store a store string
+/// names.
 fn as_written(path: &Path) -> Result<StorePath, Failure> {
     let text = path.to_str().ok_or_else(|| Failure::not_utf8(path))?;
     StorePath::new(text).map_err(|error| Failure::of_store(path, None, &error))
 }
 
-/// Creates the bucket a write to the store `named` goes to when it is
-/// missing: the store's own for `minio:` and `s3:`, its files' for `mongodb:`.
-/// The file system has none.
-#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
-async fn ensure_bucket(
-    #[cfg(feature = "s3")] system: &dyn System,
-    store: &AnyStore<'_>,
-    named: Option<&StoreArg>,
+/// Runs `cli`'s command over `system`, the configuration read first.
+async fn execute(
+    cli: &Cli,
+    system: &dyn System,
+    stdin: &mut (dyn Read + Send),
+    stdout: &mut (dyn Write + Send),
 ) -> Result<(), Failure> {
-    let Some(arg) = named else {
-        return Ok(());
-    };
-    let ensured = match store {
-        #[cfg(feature = "minio")]
-        AnyStore::Minio(objects) => objects.ensure().await,
-        #[cfg(feature = "mongodb")]
-        AnyStore::Mongo(mongo) => mongo.ensure_files_bucket().await,
-        #[cfg(feature = "s3")]
-        AnyStore::S3(objects) => {
-            let key = kms_key(system)?;
-            objects.ensure(key.as_deref()).await
+    let setup = Setup::new(system, cli.config.as_deref())?;
+    let lock = setup.configuration.lock;
+    match &cli.command {
+        Command::Asset {
+            command: AssetCommand::FinishDeletions { store },
+        } => finish_deletions(&setup, store, stdout).await,
+        Command::Fix { path, store } => fix(&setup, store.as_ref(), path.as_deref(), stdout).await,
+        Command::Get {
+            path,
+            allow_missing,
+            embed,
+            format,
+            frontmatter,
+            output,
+            store,
+        } => {
+            let settings = Settings::new(*format, *frontmatter, *allow_missing, lock);
+            get(
+                &setup,
+                store.as_ref(),
+                path,
+                &settings,
+                output.as_deref(),
+                *embed,
+                stdout,
+            )
+            .await
         }
-        AnyStore::File(_) | _ => Ok(()),
-    };
-    ensured.map_err(|error| Failure::store(arg, &error))
-}
-
-/// The KMS key a bucket that a write creates in AWS S3 is encrypted with:
-/// `ARKY_S3_KMS_KEY_ARN`, or `None` when it is not set.
-#[cfg(feature = "s3")]
-fn kms_key(system: &dyn System) -> Result<Option<String>, Failure> {
-    match system.env_var("ARKY_S3_KMS_KEY_ARN") {
-        Ok(arn) => Ok(Some(arn)),
-        Err(VarError::NotPresent) => Ok(None),
-        Err(VarError::NotUnicode(_)) => Err(Failure::configuration(
-            "ARKY_S3_KMS_KEY_ARN is not UTF-8: it holds the KMS key a new S3 bucket is encrypted with"
-                .to_owned(),
-        )),
+        Command::Write {
+            path,
+            allow_missing,
+            format,
+            frontmatter,
+            input,
+            store,
+        } => {
+            let settings = Settings::new(*format, *frontmatter, *allow_missing, lock);
+            write(
+                &setup,
+                store.as_ref(),
+                path,
+                &settings,
+                input.as_deref(),
+                stdin,
+            )
+            .await
+        }
     }
 }
 
-/// Removes each expired lock under `path` in the store `named` names, and
-/// writes the path of each one it removed to `stdout`, one per line.
+/// Removes each expired lock under `path` in the store `named` names, the
+/// file system when it is `None`, and writes the path of each one it removed
+/// to `stdout`, one per line.
 async fn fix(
-    system: &dyn System,
+    setup: &Setup<'_>,
     named: Option<&StoreArg>,
     path: Option<&Path>,
-    lock: LockSettings,
     stdout: &mut (dyn Write + Send),
 ) -> Result<(), Failure> {
     let removed = match named {
-        None => fix_files(system, path, lock).await?,
-        Some(arg) => match arg {
-            #[cfg(feature = "minio")]
-            StoreArg::Minio { bucket, prefix } => {
-                fix_objects(system, arg, bucket, prefix.as_deref(), path, lock).await?
+        None => fix_files(setup.system, path, setup.configuration.lock).await?,
+        Some(StoreArg(text)) => {
+            let name = Named::written(text);
+            let folder = path.map(as_written).transpose()?;
+            let store = setup.open(&name).await?;
+            match store.remove_expired_locks(folder.as_ref()).await {
+                Ok(removed) => removed.iter().map(ToString::to_string).collect(),
+                Err(StoreError::Unsupported(_)) => return Err(Failure::keeps_no_locks(&name)),
+                Err(error) => return Err(name.failure(&error)),
             }
-            #[cfg(not(feature = "minio"))]
-            StoreArg::Minio {
-                bucket: _,
-                prefix: _,
-            } => return Err(Failure::unbuilt(arg, "MinIO")),
-            StoreArg::Mongodb {
-                collection: _,
-                database: _,
-            } => return Err(Failure::keeps_no_locks(arg)),
-            #[cfg(feature = "s3")]
-            StoreArg::S3 { bucket, prefix } => {
-                fix_aws_objects(system, arg, bucket, prefix.as_deref(), path, lock).await?
-            }
-            #[cfg(not(feature = "s3"))]
-            StoreArg::S3 {
-                bucket: _,
-                prefix: _,
-            } => return Err(Failure::unbuilt(arg, "S3")),
-        },
+        }
     };
     for line in removed {
         writeln!(stdout, "{line}").map_err(|error| Failure::stream("standard output", &error))?;
@@ -300,126 +458,46 @@ async fn fix_files(
         .collect())
 }
 
-/// `fix` over the AWS S3 store `arg` names: the store paths of the locks
-/// under `path`, the whole prefix when `None`.
-#[cfg(feature = "s3")]
-async fn fix_aws_objects(
-    system: &dyn System,
-    arg: &StoreArg,
-    bucket: &str,
-    prefix: Option<&str>,
-    path: Option<&Path>,
-    lock: LockSettings,
-) -> Result<Vec<String>, Failure> {
-    let under = prefix
-        .map(StorePath::new)
-        .transpose()
-        .map_err(|error| Failure::store(arg, &error))?;
-    let store = aws_objects(system, bucket, under, lock)?;
-    remove_locks(&store, arg, path).await
-}
-
-/// `fix` over the `MinIO` store `arg` names: the store paths of the locks
-/// under `path`, the whole prefix when `None`.
-#[cfg(feature = "minio")]
-async fn fix_objects(
-    system: &dyn System,
-    arg: &StoreArg,
-    bucket: &str,
-    prefix: Option<&str>,
-    path: Option<&Path>,
-    lock: LockSettings,
-) -> Result<Vec<String>, Failure> {
-    let under = prefix
-        .map(StorePath::new)
-        .transpose()
-        .map_err(|error| Failure::store(arg, &error))?;
-    let store = objects(system, bucket, under, lock)?;
-    remove_locks(&store, arg, path).await
-}
-
-/// The store paths of the expired locks `store` removed under `path`, the
-/// whole prefix when `None`.
-#[cfg(any(feature = "minio", feature = "s3"))]
-async fn remove_locks<B>(
-    store: &ObjectStore<'_, B>,
-    arg: &StoreArg,
-    path: Option<&Path>,
-) -> Result<Vec<String>, Failure>
-where
-    B: Bucket + EnsureBucket,
-{
-    let folder = path.map(as_written).transpose()?;
-    let removed = store
-        .remove_expired_locks(folder.as_ref())
-        .await
-        .map_err(|error| Failure::store(arg, &error))?;
-    Ok(removed.iter().map(ToString::to_string).collect())
-}
-
 /// Finishes each deletion of an embedded file that stopped halfway in the
-/// MongoDB store `arg` names, and writes the key of each object it deleted to
-/// `stdout`, one per line.
-#[cfg(feature = "mongodb")]
+/// store `named` names, and writes the store path of each object it deleted
+/// to `stdout`, one per line.
 async fn finish_deletions(
-    system: &dyn System,
-    arg: &StoreArg,
+    setup: &Setup<'_>,
+    named: &StoreArg,
     stdout: &mut (dyn Write + Send),
 ) -> Result<(), Failure> {
-    match arg {
-        StoreArg::Minio {
-            bucket: _,
-            prefix: _,
-        }
-        | StoreArg::S3 {
-            bucket: _,
-            prefix: _,
-        } => Err(Failure::keeps_no_deletions(arg)),
-        StoreArg::Mongodb {
-            collection,
-            database,
-        } => {
-            let store = mongodb(system, arg, database, collection).await?;
-            let finished = store
-                .finish_deletions()
-                .await
-                .map_err(|error| Failure::store(arg, &error))?;
-            for object in finished {
-                writeln!(stdout, "{object}")
-                    .map_err(|error| Failure::stream("standard output", &error))?;
-            }
-            stdout
-                .flush()
-                .map_err(|error| Failure::stream("standard output", &error))
-        }
+    let name = Named::written(&named.0);
+    let store = setup.open(&name).await?;
+    let finished = match store.finish_deletions().await {
+        Ok(finished) => finished,
+        Err(StoreError::Unsupported(_)) => return Err(Failure::keeps_no_deletions(&name)),
+        Err(error) => return Err(name.failure(&error)),
+    };
+    for object in finished {
+        writeln!(stdout, "{object}").map_err(|error| Failure::stream("standard output", &error))?;
     }
+    stdout
+        .flush()
+        .map_err(|error| Failure::stream("standard output", &error))
 }
 
-/// The failure of `asset finish-deletions` with `arg` in a build without the
-/// MongoDB store, the one store that keeps deletions.
-#[cfg(not(feature = "mongodb"))]
-fn finish_deletions(arg: &StoreArg) -> Result<(), Failure> {
-    Err(match arg {
-        StoreArg::Minio {
-            bucket: _,
-            prefix: _,
-        }
-        | StoreArg::S3 {
-            bucket: _,
-            prefix: _,
-        } => Failure::keeps_no_deletions(arg),
-        StoreArg::Mongodb {
-            collection: _,
-            database: _,
-        } => Failure::unbuilt(arg, "MongoDB"),
-    })
+/// The store path of the folder `path`: `None` for the root of the file
+/// system.
+fn folder_path(system: &dyn System, path: &Path) -> Result<Option<StorePath>, Failure> {
+    let text = store_text(system, path)?;
+    if text.is_empty() {
+        return Ok(None);
+    }
+    StorePath::new(&text)
+        .map(Some)
+        .map_err(|error| Failure::of_store(path, None, &error))
 }
 
 /// Writes the document at `path` to `stdout`, or to the file `output`, whole.
 /// Markdown to `output` is that file and each file it embeds beside it, unless
 /// `embed` asks for the one file.
 async fn get(
-    system: &dyn System,
+    setup: &Setup<'_>,
     named: Option<&StoreArg>,
     path: &Path,
     settings: &Settings,
@@ -433,13 +511,14 @@ async fn get(
             message: "--embed writes markdown; it needs -f markdown".to_owned(),
         });
     }
-    let (store, at) = open(system, named, path, settings.lock).await?;
+    let system = setup.system;
+    let located = setup.locate(named, path).await?;
     let target = output
         .map(|file| store_path(system, file).map(|place| (file, place)))
         .transpose()?;
-    let bundle = document::get(&store, &at, settings.missing)
+    let bundle = document::get(located.store.as_ref(), &located.at, settings.missing)
         .await
-        .map_err(|error| Failure::of_document(path, &at, &error))?;
+        .map_err(|error| Failure::of_document(path, &located.at, &error))?;
     if let Some((file, place)) = &target
         && settings.form == Form::Markdown
         && !embed
@@ -475,203 +554,10 @@ fn machine(system: &dyn System, lock: LockSettings) -> FileStore<'_> {
     FileStore::new(PathBuf::from("/"), system).locking(lock)
 }
 
-/// The `MinIO` store `arg` names, `bucket` under `prefix` on the server the
-/// environment names, and `path` as a path of it.
-#[cfg(feature = "minio")]
-fn minio<'system>(
-    system: &'system dyn System,
-    arg: &StoreArg,
-    bucket: &str,
-    prefix: Option<&str>,
-    path: &Path,
-    lock: LockSettings,
-) -> Result<(AnyStore<'system>, StorePath), Failure> {
-    let under = prefix
-        .map(StorePath::new)
-        .transpose()
-        .map_err(|error| Failure::store(arg, &error))?;
-    let store = objects(system, bucket, under, lock)?;
-    let at = as_written(path)?;
-    Ok((AnyStore::Minio(store), at))
-}
-
-/// The MongoDB store `arg` names: the collection `collection` of the database
-/// `database`, on the server `ARKY_MONGODB_URI` names, its files in the
-/// bucket `ARKY_MONGODB_BUCKET` names.
-#[cfg(feature = "mongodb")]
-async fn mongodb<'system>(
-    system: &'system dyn System,
-    arg: &StoreArg,
-    database: &str,
-    collection: &str,
-) -> Result<MongoStore<'system>, Failure> {
-    let uri = variable(system, "ARKY_MONGODB_URI", "the MongoDB connection string")?;
-    let files = mongodb_files(system)?;
-    MongoStore::open(&uri, database, collection, files)
-        .await
-        .map_err(|error| Failure::store(arg, &error))
-}
-
-/// The bucket a MongoDB store keeps its files in: `ARKY_MONGODB_BUCKET`,
-/// `<bucket>` or `<bucket>/<prefix>`, on the `MinIO` server the environment
-/// names.
-#[cfg(feature = "mongodb")]
-fn mongodb_files(system: &dyn System) -> Result<ObjectStore<'_, MinioBucket>, Failure> {
-    let (name, holds) = (
-        "ARKY_MONGODB_BUCKET",
-        "the MinIO bucket of a MongoDB store's files",
-    );
-    let place = variable(system, name, holds)?;
-    let (bucket, prefix) = bucket_and_prefix(&place).ok_or_else(|| {
-        Failure::configuration(format!(
-            "{name} is not <bucket> or <bucket>/<prefix>: it holds {holds}"
-        ))
-    })?;
-    let under = prefix
-        .map(StorePath::new)
-        .transpose()
-        .map_err(|error| Failure::configuration(format!("{name}: {error}")))?;
-    objects(system, bucket, under, LockSettings::default())
-}
-
-/// The bucket `bucket`, its keys under `prefix`, on the `MinIO` server the
-/// environment names.
-#[cfg(any(feature = "minio", feature = "mongodb"))]
-fn objects<'system>(
-    system: &'system dyn System,
-    bucket: &str,
-    prefix: Option<StorePath>,
-    lock: LockSettings,
-) -> Result<ObjectStore<'system, MinioBucket>, Failure> {
-    let endpoint = variable(system, "ARKY_MINIO_ENDPOINT", "the MinIO server's address")?;
-    let region = variable(
-        system,
-        "ARKY_MINIO_REGION",
-        "the region the MinIO server expects",
-    )?;
-    let config = ObjectConfig::new(endpoint, region, bucket.to_owned(), prefix);
-    // `open` fails only on a key missing from the environment.
-    ObjectStore::open(system, config)
-        .map(|store| store.locking(lock))
-        .map_err(|error| Failure::configuration(error.to_string()))
-}
-
-/// The AWS S3 store `arg` names, `bucket` under `prefix` in the region
-/// `ARKY_S3_REGION` names, and `path` as a path of it.
-#[cfg(feature = "s3")]
-fn s3<'system>(
-    system: &'system dyn System,
-    arg: &StoreArg,
-    bucket: &str,
-    prefix: Option<&str>,
-    path: &Path,
-    lock: LockSettings,
-) -> Result<(AnyStore<'system>, StorePath), Failure> {
-    let under = prefix
-        .map(StorePath::new)
-        .transpose()
-        .map_err(|error| Failure::store(arg, &error))?;
-    let store = aws_objects(system, bucket, under, lock)?;
-    let at = as_written(path)?;
-    Ok((AnyStore::S3(store), at))
-}
-
-/// The AWS S3 bucket `bucket`, its keys under `prefix`, in the region the
-/// environment names.
-#[cfg(feature = "s3")]
-fn aws_objects<'system>(
-    system: &'system dyn System,
-    bucket: &str,
-    prefix: Option<StorePath>,
-    lock: LockSettings,
-) -> Result<ObjectStore<'system, S3Bucket>, Failure> {
-    let region = variable(system, "ARKY_S3_REGION", "the AWS region of the S3 bucket")?;
-    let config = S3ObjectConfig::new(region, bucket.to_owned(), prefix);
-    // `open_s3` fails only on a key missing from the environment.
-    ObjectStore::open_s3(system, config)
-        .map(|store| store.locking(lock))
-        .map_err(|error| Failure::configuration(error.to_string()))
-}
-
-/// The store `named` names, the file system's when it is `None`, and `path`
-/// as a path of it.
-#[cfg(feature = "mongodb")]
-async fn open<'system>(
-    system: &'system dyn System,
-    named: Option<&StoreArg>,
-    path: &Path,
-    lock: LockSettings,
-) -> Result<(AnyStore<'system>, StorePath), Failure> {
-    let Some(arg) = named else {
-        return Ok((
-            AnyStore::File(machine(system, lock)),
-            store_path(system, path)?,
-        ));
-    };
-    match arg {
-        #[cfg(feature = "minio")]
-        StoreArg::Minio { bucket, prefix } => {
-            minio(system, arg, bucket, prefix.as_deref(), path, lock)
-        }
-        #[cfg(not(feature = "minio"))]
-        StoreArg::Minio {
-            bucket: _,
-            prefix: _,
-        } => Err(Failure::unbuilt(arg, "MinIO")),
-        StoreArg::Mongodb {
-            collection,
-            database,
-        } => {
-            let at = as_written(path)?;
-            let store = mongodb(system, arg, database, collection).await?;
-            Ok((AnyStore::Mongo(store), at))
-        }
-        #[cfg(feature = "s3")]
-        StoreArg::S3 { bucket, prefix } => s3(system, arg, bucket, prefix.as_deref(), path, lock),
-        #[cfg(not(feature = "s3"))]
-        StoreArg::S3 {
-            bucket: _,
-            prefix: _,
-        } => Err(Failure::unbuilt(arg, "S3")),
-    }
-}
-
-/// The store `named` names, the file system's when it is `None`, and `path`
-/// as a path of it: ready at once, as no store of this build connects.
-#[cfg(not(feature = "mongodb"))]
-fn open<'system>(
-    system: &'system dyn System,
-    named: Option<&StoreArg>,
-    path: &Path,
-    lock: LockSettings,
-) -> Ready<Result<(AnyStore<'system>, StorePath), Failure>> {
-    let Some(arg) = named else {
-        let at = store_path(system, path);
-        return future::ready(at.map(|place| (AnyStore::File(machine(system, lock)), place)));
-    };
-    let opened = match arg {
-        #[cfg(feature = "minio")]
-        StoreArg::Minio { bucket, prefix } => {
-            minio(system, arg, bucket, prefix.as_deref(), path, lock)
-        }
-        #[cfg(not(feature = "minio"))]
-        StoreArg::Minio {
-            bucket: _,
-            prefix: _,
-        } => Err(Failure::unbuilt(arg, "MinIO")),
-        StoreArg::Mongodb {
-            collection: _,
-            database: _,
-        } => Err(Failure::unbuilt(arg, "MongoDB")),
-        #[cfg(feature = "s3")]
-        StoreArg::S3 { bucket, prefix } => s3(system, arg, bucket, prefix.as_deref(), path, lock),
-        #[cfg(not(feature = "s3"))]
-        StoreArg::S3 {
-            bucket: _,
-            prefix: _,
-        } => Err(Failure::unbuilt(arg, "S3")),
-    };
-    future::ready(opened)
+/// Writes `failure` to `stderr` as one line, and gives its exit code.
+fn report(stderr: &mut (dyn Write + Send), failure: &Failure) -> ExitCode {
+    let _: io::Result<()> = writeln!(stderr, "arky: {}", failure.message);
+    ExitCode::from(failure.code)
 }
 
 /// Runs `cli` over `system` and the three streams, and gives the exit code.
@@ -682,148 +568,26 @@ pub async fn run(
     stdout: &mut (dyn Write + Send),
     stderr: &mut (dyn Write + Send),
 ) -> ExitCode {
-    let lock = match lock_settings(system, cli.config.as_deref()) {
-        Ok(lock) => lock,
-        Err(failure) => return report(stderr, &failure),
-    };
-    let done = match &cli.command {
-        #[cfg(feature = "mongodb")]
-        Command::Asset {
-            command: AssetCommand::FinishDeletions { store },
-        } => finish_deletions(system, store, stdout).await,
-        #[cfg(not(feature = "mongodb"))]
-        Command::Asset {
-            command: AssetCommand::FinishDeletions { store },
-        } => finish_deletions(store),
-        Command::Fix { path, store } => {
-            fix(system, store.as_ref(), path.as_deref(), lock, stdout).await
-        }
-        Command::Get {
-            path,
-            allow_missing,
-            embed,
-            format,
-            frontmatter,
-            output,
-            store,
-        } => {
-            let settings = Settings::new(*format, *frontmatter, *allow_missing, lock);
-            get(
-                system,
-                store.as_ref(),
-                path,
-                &settings,
-                output.as_deref(),
-                *embed,
-                stdout,
-            )
-            .await
-        }
-        Command::Write {
-            path,
-            allow_missing,
-            format,
-            frontmatter,
-            input,
-            store,
-        } => {
-            let settings = Settings::new(*format, *frontmatter, *allow_missing, lock);
-            write(
-                system,
-                store.as_ref(),
-                path,
-                &settings,
-                input.as_deref(),
-                stdin,
-            )
-            .await
-        }
-    };
-    done.map_or_else(|failure| report(stderr, &failure), |()| ExitCode::SUCCESS)
+    execute(cli, system, stdin, stdout)
+        .await
+        .map_or_else(|failure| report(stderr, &failure), |()| ExitCode::SUCCESS)
 }
 
-/// Writes `failure` to `stderr` as one line, and gives its exit code.
-fn report(stderr: &mut (dyn Write + Send), failure: &Failure) -> ExitCode {
-    let _: io::Result<()> = writeln!(stderr, "arky: {}", failure.message);
-    ExitCode::from(failure.code)
-}
-
-/// The lock's settings in the `[lock]` table of the configuration file:
-/// `named` (from `--config`), else the file `ARKY_CONFIG` names, else
-/// `arky.toml` in the current folder; the defaults where that last file is
-/// missing or has no `[lock]`.
-fn lock_settings(system: &dyn System, named: Option<&Path>) -> Result<LockSettings, Failure> {
-    let from_variable = match (named, system.env_var("ARKY_CONFIG")) {
-        (Some(_), _) | (None, Err(VarError::NotPresent)) => None,
-        (None, Ok(file)) => Some(PathBuf::from(file)),
-        (None, Err(VarError::NotUnicode(_))) => {
-            return Err(Failure::configuration(
-                "ARKY_CONFIG is not UTF-8: it holds the configuration file".to_owned(),
-            ));
-        }
-    };
-    let asked = named.map(Path::to_path_buf).or(from_variable);
-    let file = asked.clone().unwrap_or_else(|| PathBuf::from(CONFIG_FILE));
-    let source = match system.read_to_string(&system_path(system, &file)?) {
-        Ok(source) => source,
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            return if asked.is_some() {
-                Err(Failure::in_file(
-                    &file,
-                    &"the configuration file does not exist",
-                ))
-            } else {
-                Ok(LockSettings::default())
-            };
-        }
-        Err(error) => return Err(Failure::in_file(&file, &error)),
-    };
-    let tables =
-        read_toml(&source, 0..source.len()).map_err(|error| Failure::in_file(&file, &error))?;
-    match tables.get("lock") {
-        None => Ok(LockSettings::default()),
-        Some(Value::Mapping(lock)) => lock_table(&file, lock),
-        Some(_) => Err(Failure::in_file(&file, &"lock is not a table")),
+/// The refusal of `text` when it is one of the short forms, such as
+/// `minio:notes`: a folder of that name is written `./minio:notes`.
+fn short_form(text: &str) -> Option<String> {
+    let (scheme, rest) = text.split_once(':')?;
+    if rest.starts_with("//") {
+        return None;
     }
-}
-
-/// The settings the `[lock]` table `lock` of the configuration file `file`
-/// gives: the defaults for a key left out.
-fn lock_table(file: &Path, lock: &Mapping) -> Result<LockSettings, Failure> {
-    let mut settings = LockSettings::default();
-    for (key, value) in lock {
-        let seconds = match (key.as_str(), value) {
-            ("expires_seconds" | "wait_seconds", Value::Integer(whole)) if *whole > 0 => {
-                Duration::from_secs(whole.unsigned_abs())
-            }
-            ("expires_seconds" | "wait_seconds", _) => {
-                return Err(Failure::in_file(
-                    file,
-                    &format!("{key} in [lock] is not a whole number of seconds above zero"),
-                ));
-            }
-            _ => {
-                return Err(Failure::in_file(
-                    file,
-                    &format!("[lock] has no key {key}; it takes expires_seconds and wait_seconds"),
-                ));
-            }
-        };
-        if key == "expires_seconds" {
-            settings.expires = seconds;
-        } else {
-            settings.wait = seconds;
-        }
-    }
-    Ok(settings)
-}
-
-/// `file` against the current folder.
-fn system_path(system: &dyn System, file: &Path) -> Result<PathBuf, Failure> {
-    system
-        .current_dir()
-        .map(|folder| folder.join(file))
-        .map_err(|error| Failure::stream("the current folder", &error))
+    SHORT_FORMS
+        .iter()
+        .find(|(short, _, _)| *short == scheme)
+        .map(|(_, store, form)| {
+            format!(
+                "{scheme}: is not a store string: {store} is {form}, and a folder of this name starts with ./"
+            )
+        })
 }
 
 /// The exit code of a store's error.
@@ -840,18 +604,6 @@ const fn store_code(error: &StoreError) -> u8 {
 /// without following links, as a path of the store whose root is `/`.
 fn store_path(system: &dyn System, path: &Path) -> Result<StorePath, Failure> {
     StorePath::new(&store_text(system, path)?)
-        .map_err(|error| Failure::of_store(path, None, &error))
-}
-
-/// The store path of the folder `path`: `None` for the root of the file
-/// system.
-fn folder_path(system: &dyn System, path: &Path) -> Result<Option<StorePath>, Failure> {
-    let text = store_text(system, path)?;
-    if text.is_empty() {
-        return Ok(None);
-    }
-    StorePath::new(&text)
-        .map(Some)
         .map_err(|error| Failure::of_store(path, None, &error))
 }
 
@@ -876,31 +628,40 @@ fn store_text(system: &dyn System, path: &Path) -> Result<String, Failure> {
     Ok(parts.join("/"))
 }
 
-/// The value of the variable `name`, which holds `holds`; the error names the
-/// variable, never its value.
-#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
-fn variable(system: &dyn System, name: &str, holds: &str) -> Result<String, Failure> {
-    system.env_var(name).map_err(|error| {
-        let what = match error {
-            VarError::NotPresent => "is not set",
-            VarError::NotUnicode(_) => "is not UTF-8",
-        };
-        Failure::configuration(format!("{name} {what}: it holds {holds}"))
-    })
+/// `file` against the current folder.
+fn system_path(system: &dyn System, file: &Path) -> Result<PathBuf, Failure> {
+    system
+        .current_dir()
+        .map(|folder| folder.join(file))
+        .map_err(|error| Failure::stream("the current folder", &error))
+}
+
+/// The value of the variable `name`, which holds `holds`, or `None` when it
+/// is not set; the error names the variable, never its value.
+fn variable(system: &dyn System, name: &str, holds: &str) -> Result<Option<String>, Failure> {
+    match system.env_var(name) {
+        Ok(value) => Ok(Some(value)),
+        Err(VarError::NotPresent) => Ok(None),
+        Err(VarError::NotUnicode(_)) => Err(Failure::configuration(format!(
+            "{name} is not UTF-8: it holds {holds}"
+        ))),
+    }
 }
 
 /// Stores at `path` the document read from `stdin`, or from the file `input`,
 /// replacing any file there. Markdown from `input` brings each file it embeds
-/// from beside it.
+/// from beside it. The store's container is created, when it is missing,
+/// after the input is read and before the first write.
 async fn write(
-    system: &dyn System,
+    setup: &Setup<'_>,
     named: Option<&StoreArg>,
     path: &Path,
     settings: &Settings,
     input: Option<&Path>,
     stdin: &mut (dyn Read + Send),
 ) -> Result<(), Failure> {
-    let (store, at) = open(system, named, path, settings.lock).await?;
+    let system = setup.system;
+    let located = setup.locate(named, path).await?;
     let stored = if let Some(file) = input
         && settings.form == Form::Markdown
     {
@@ -908,15 +669,15 @@ async fn write(
         let bundle = document::get(&machine(system, settings.lock), &source, settings.missing)
             .await
             .map_err(|error| Failure::of_document(file, &source, &error))?;
-        #[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
-        ensure_bucket(
-            #[cfg(feature = "s3")]
-            system,
-            &store,
-            named,
+        located.ensure(path).await?;
+        document::put_bundle(
+            located.store.as_ref(),
+            &located.at,
+            &bundle,
+            &settings.options,
+            &Precondition::None,
         )
-        .await?;
-        document::put_bundle(&store, &at, &bundle, &settings.options, &Precondition::None).await
+        .await
     } else {
         let bytes = if let Some(file) = input {
             let source = store_path(system, file)?;
@@ -932,17 +693,10 @@ async fn write(
                 .map_err(|error| Failure::stream("standard input", &error))?;
             bytes
         };
-        #[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
-        ensure_bucket(
-            #[cfg(feature = "s3")]
-            system,
-            &store,
-            named,
-        )
-        .await?;
+        located.ensure(path).await?;
         document::put(
-            &store,
-            &at,
+            located.store.as_ref(),
+            &located.at,
             settings.form,
             &bytes,
             &settings.options,
@@ -951,7 +705,7 @@ async fn write(
         )
         .await
     };
-    let _: Revision = stored.map_err(|error| Failure::of_document(path, &at, &error))?;
+    let _: Revision = stored.map_err(|error| Failure::of_document(path, &located.at, &error))?;
     Ok(())
 }
 
