@@ -120,7 +120,8 @@ fn a_request_signed_with_a_wrong_secret_key_exits_4_without_showing_it() {
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let root = folder.path();
     let store = format!("minio:{}/binary/wrong-secret", bucket());
-    for command in ["get", "write"] {
+    let named = format!("arky: {store}: ");
+    for (command, line) in [("get", "arky: a.md: "), ("write", named.as_str())] {
         let ran = Command::cargo_bin("arky")
             .unwrap()
             .current_dir(root)
@@ -132,11 +133,36 @@ fn a_request_signed_with_a_wrong_secret_key_exits_4_without_showing_it() {
             .assert()
             .code(4_i32)
             .stdout(is_empty())
-            .stderr(starts_with("arky: a.md: "));
+            .stderr(starts_with(line));
         let stderr = String::from_utf8(ran.get_output().stderr.clone()).unwrap();
         assert!(!stderr.contains(secret), "{stderr}");
         assert_eq!(stderr.lines().count(), 1, "{stderr}");
     }
+}
+
+#[test]
+fn a_write_to_a_missing_bucket_creates_it_and_a_get_reads_the_document_back() {
+    let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let root = folder.path();
+    let store = "minio:arky-cli-created/notes";
+    Command::cargo_bin("arky")
+        .unwrap()
+        .current_dir(root)
+        .args(["write", "a.md", "--store", store])
+        .env("ARKY_MINIO_ENDPOINT", endpoint())
+        .env("ARKY_MINIO_REGION", REGION)
+        .write_stdin(b"# A\n".as_slice())
+        .assert()
+        .success();
+    Command::cargo_bin("arky")
+        .unwrap()
+        .current_dir(root)
+        .args(["get", "a.md", "--store", store])
+        .env("ARKY_MINIO_ENDPOINT", endpoint())
+        .env("ARKY_MINIO_REGION", REGION)
+        .assert()
+        .success()
+        .stdout(eq(b"# A\n".as_slice()));
 }
 
 #[test]

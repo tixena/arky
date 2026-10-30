@@ -170,6 +170,24 @@ fn as_written(path: &Path) -> Result<StorePath, Failure> {
     StorePath::new(text).map_err(|error| Failure::of_store(path, None, &error))
 }
 
+/// Creates the bucket a write to the store `named` goes to when it is
+/// missing: the store's own for `minio:`, its files' for `mongodb:`. The file
+/// system has none.
+#[cfg(any(feature = "minio", feature = "mongodb"))]
+async fn ensure_bucket(store: &AnyStore<'_>, named: Option<&StoreArg>) -> Result<(), Failure> {
+    let Some(arg) = named else {
+        return Ok(());
+    };
+    let ensured = match store {
+        #[cfg(feature = "minio")]
+        AnyStore::Minio(objects) => objects.ensure().await,
+        #[cfg(feature = "mongodb")]
+        AnyStore::Mongo(mongo) => mongo.ensure_files_bucket().await,
+        AnyStore::File(_) | _ => Ok(()),
+    };
+    ensured.map_err(|error| Failure::store(arg, &error))
+}
+
 /// Removes each expired lock under `path` in the store `named` names, and
 /// writes the path of each one it removed to `stdout`, one per line.
 async fn fix(
@@ -756,6 +774,8 @@ async fn write(
         let bundle = document::get(&machine(system, settings.lock), &source, settings.missing)
             .await
             .map_err(|error| Failure::of_document(file, &source, &error))?;
+        #[cfg(any(feature = "minio", feature = "mongodb"))]
+        ensure_bucket(&store, named).await?;
         document::put_bundle(&store, &at, &bundle, &settings.options, &Precondition::None).await
     } else {
         let bytes = if let Some(file) = input {
@@ -772,6 +792,8 @@ async fn write(
                 .map_err(|error| Failure::stream("standard input", &error))?;
             bytes
         };
+        #[cfg(any(feature = "minio", feature = "mongodb"))]
+        ensure_bucket(&store, named).await?;
         document::put(
             &store,
             &at,

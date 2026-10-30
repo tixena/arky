@@ -96,7 +96,8 @@ kept as objects whose keys start with `<prefix>/`, or with no prefix when it is
 left out: with the prefix `vault`, the store path `notes/task.md` is the object
 `vault/notes/task.md`. The prefix follows the rules of a store path: parts joined
 by `/`, none empty, none `.` or `..`. The bucket goes in the path of each
-request's address, `<endpoint>/<bucket>/<key>`.
+request's address, `<endpoint>/<bucket>/<key>`, and must already exist: a get
+creates no bucket.
 
 | Variable | What it holds |
 |---|---|

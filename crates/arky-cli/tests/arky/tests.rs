@@ -470,7 +470,8 @@ fn each_minio_variable_left_out_or_not_utf8_exits_3_with_one_line_naming_it() {
 
 #[cfg(feature = "minio")]
 #[test]
-fn a_minio_server_that_cannot_be_reached_exits_4_naming_the_path_and_no_key() {
+fn a_minio_server_that_cannot_be_reached_exits_4_naming_the_path_on_a_get_and_the_store_on_a_write()
+{
     let folder = folder();
     let root = folder.path();
     let variables: Vec<(&str, &OsStr)> = MINIO_VARIABLES
@@ -481,7 +482,7 @@ fn a_minio_server_that_cannot_be_reached_exits_4_naming_the_path_and_no_key() {
     failed_hiding_the_keys(get, 4, "arky: a.md: ");
     let write = ["write", "b.md", "-s", "minio:notes/vault"];
     let written = arky_with_minio(root, &write, &variables);
-    failed_hiding_the_keys(written, 4, "arky: b.md: ");
+    failed_hiding_the_keys(written, 4, "arky: minio:notes/vault: ");
     assert_eq!(names(root), Vec::<String>::new());
 }
 
