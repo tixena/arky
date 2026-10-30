@@ -113,6 +113,12 @@ pub(crate) trait Locks {
         found: &Found,
     ) -> impl Future<Output = Result<bool, StoreError>> + Send;
 
+    /// The revision of the file at `path`, or `None` where nothing is.
+    fn revision(
+        &self,
+        path: &StorePath,
+    ) -> impl Future<Output = Result<Option<Revision>, StoreError>> + Send;
+
     /// The clock: `now` and `sleep_async`.
     fn system(&self) -> &dyn System;
 }
@@ -301,16 +307,12 @@ async fn holds<S>(
     precondition: &Precondition,
 ) -> Result<(), StoreError>
 where
-    S: Store + Sync,
+    S: Locks + Sync,
 {
     if matches!(precondition, Precondition::None) {
         return Ok(());
     }
-    let current = match store.read(path).await {
-        Ok(stored) => Some(stored.revision),
-        Err(StoreError::NotFound(_)) => None,
-        Err(error) => return Err(error),
-    };
+    let current = store.revision(path).await?;
     let holds = match precondition {
         Precondition::Absent => current.is_none(),
         Precondition::Matches(expected) => current.as_ref() == Some(expected),

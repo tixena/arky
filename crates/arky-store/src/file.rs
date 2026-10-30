@@ -330,6 +330,16 @@ impl Locks for FileStore<'_> {
         future::ready(self.lock_removed(lock, found))
     }
 
+    fn revision(
+        &self,
+        path: &StorePath,
+    ) -> impl Future<Output = Result<Option<Revision>, StoreError>> + Send {
+        future::ready(
+            self.bytes(path)
+                .map(|held| held.map(|bytes| revision(&bytes))),
+        )
+    }
+
     fn system(&self) -> &dyn System {
         self.system
     }
