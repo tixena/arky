@@ -65,12 +65,14 @@ $ echo $?
 ```
 
 An error is one line on standard error: `arky: `, the store as the command line
-gave it, and what failed. A MinIO store keeps no deletions, so a `--store minio:`
-value exits with code 2:
+gave it, and what failed. A MinIO store and an S3 store keep no deletions, so a
+`--store minio:` or `--store s3:` value exits with code 2:
 
 ```console
 $ arky asset finish-deletions --store minio:notes
 arky: minio:notes keeps no deletions: asset finish-deletions takes --store mongodb:<database>/<collection>
+$ arky asset finish-deletions --store s3:notes
+arky: s3:notes keeps no deletions: asset finish-deletions takes --store mongodb:<database>/<collection>
 ```
 
 ### Exit codes
@@ -78,7 +80,7 @@ arky: minio:notes keeps no deletions: asset finish-deletions takes --store mongo
 | Code | Meaning |
 |---|---|
 | 0 | Success: each deletion that stopped halfway is finished. |
-| 2 | The command line is wrong: no `--store`, a `--store` value of any other shape, or a `--store minio:` value. |
+| 2 | The command line is wrong: no `--store`, a `--store` value of any other shape, or a `--store minio:` or `--store s3:` value. |
 | 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, an `ARKY_MONGODB_BUCKET` that is not `<bucket>` or `<bucket>/<prefix>`, or the MongoDB store is not built into this arky. |
 | 4 | The store failed: a MongoDB or MinIO server that cannot be reached, or a MinIO server that refuses the keys. A failure to write standard output is code 4 too. |
 

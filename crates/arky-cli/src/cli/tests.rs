@@ -258,6 +258,20 @@ fn each_store_value_parses_and_displays_as_it_was_written() {
                 database: "notes".to_owned(),
             },
         ),
+        (
+            "s3:notes",
+            StoreArg::S3 {
+                bucket: "notes".to_owned(),
+                prefix: None,
+            },
+        ),
+        (
+            "s3:notes/drafts/2026",
+            StoreArg::S3 {
+                bucket: "notes".to_owned(),
+                prefix: Some("drafts/2026".to_owned()),
+            },
+        ),
     ];
     for (text, expected) in stores {
         let store = text.parse::<StoreArg>().unwrap();
@@ -278,7 +292,9 @@ fn a_store_of_another_shape_is_a_usage_error_with_code_2() {
         "mongodb:notes",
         "mongodb:/files",
         "mongodb:notes/",
-        "s3:notes",
+        "s3:",
+        "s3:/drafts",
+        "s3:notes/",
     ] {
         let error = Cli::try_parse_from(["arky", "get", "a.md", "-s", text]).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::ValueValidation, "{text}");

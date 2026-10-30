@@ -17,7 +17,7 @@ built, with `--store`; every other repair and option on this page is not built.
 
 | Option | Effect |
 |---|---|
-| `-s`, `--store <STORE>` | The store `PATH` is in, in place of the file system: `minio:<bucket>` or `minio:<bucket>/<prefix>`. |
+| `-s`, `--store <STORE>` | The store `PATH` is in, in place of the file system: `minio:<bucket>`, `minio:<bucket>/<prefix>`, `s3:<bucket>` or `s3:<bucket>/<prefix>`. |
 | `--dry-run` | Show what would be repaired without changing any file. Not built. |
 | `--rule <RULE>` | Repair only the findings of the named rule or rules. Not built. |
 | `--interactive` | Ask before each repair. Not built. |
@@ -41,10 +41,10 @@ property, an invalid `type` value, and the classification of an inbox file.
 ## Expired locks
 
 A save holds the file `<file>.arky-lock` beside a document while it writes, or
-the object `<key>.arky-lock` in a MinIO bucket. A save that stops before it gives
-the lock back, such as an arky that is killed, leaves it behind. The next save of
-that document removes it once it has expired, but the lock of a document nobody
-saves again stays.
+the object `<key>.arky-lock` in a MinIO or S3 bucket. A save that stops before it
+gives the lock back, such as an arky that is killed, leaves it behind. The next
+save of that document removes it once it has expired, but the lock of a document
+nobody saves again stays.
 
 `arky fix` removes each lock under `PATH` that is older than `expires_seconds`
 of the `[lock]` table of [`arky.toml`](../config.md), and only while it is still
@@ -52,15 +52,38 @@ the lock it found: a lock that another save replaced in the meantime stays. A lo
 that has not expired stays. A file whose name ends in `.lock` but not in
 `.arky-lock`, such as `Cargo.lock`, is never touched.
 
-`PATH` is a folder, the current folder when it is left out. With a MinIO store it
-is a path of the store as `arky write --store minio:` takes it, and the whole
+`PATH` is a folder, the current folder when it is left out. With a MinIO or S3
+store it is a path of the store as `arky write --store` takes it, and the whole
 prefix when it is left out.
 
 | `--store` | What it does |
 |---|---|
 | none | Repairs the file system below `PATH`. A `PATH` that is not a folder exits with code 2. |
 | `minio:<bucket>[/<prefix>]` | Repairs the objects of the bucket under `PATH`. |
+| `s3:<bucket>[/<prefix>]` | Repairs the objects of the AWS S3 bucket under `PATH`. |
 | `mongodb:<database>/<collection>` | Exits with code 2: a MongoDB store keeps no locks. |
+
+An S3 store reads the variables that [`arky write --store s3:`](write.md#stores)
+reads, except `ARKY_S3_KMS_KEY_ARN`: fix creates no bucket.
+
+| Variable | What it holds |
+|---|---|
+| `ARKY_S3_REGION` | The AWS region of the bucket, such as `eu-west-1`. Required, with no default. |
+| `AWS_ACCESS_KEY_ID` | The access key every request is signed with. Required. |
+| `AWS_SECRET_ACCESS_KEY` | The secret key every request is signed with. Required. No output and no error shows it. |
+
+A missing variable exits with code 3, on one line that names it. A prefix that is
+not a store path exits with code 2. AWS that cannot be reached, or that refuses
+the keys, exits with code 4.
+
+```console
+$ export ARKY_S3_REGION=eu-west-1 AWS_ACCESS_KEY_ID=AKIA... AWS_SECRET_ACCESS_KEY=...
+$ arky fix --store s3:acme-notes/vault
+notes/report.md.arky-lock
+$ unset ARKY_S3_REGION; arky fix --store s3:acme-notes/vault; echo "exit $?"
+arky: ARKY_S3_REGION is not set: it holds the AWS region of the S3 bucket
+exit 3
+```
 
 ### Output
 
@@ -69,7 +92,7 @@ when no lock had expired.
 
 - On the file system, the lock's path below the folder searched, after `PATH` as
   the command line gave it, or alone when `PATH` was left out.
-- In a MinIO store, the lock's path in the store, as `arky write --store minio:`
+- In a MinIO or S3 store, the lock's path in the store, as `arky write --store`
   names files.
 
 ```console
@@ -83,7 +106,7 @@ $ arky fix notes
 $ arky fix --store minio:arky/vault
 notes/report.md.arky-lock
 $ arky fix --store mongodb:notes/docs
-arky: mongodb:notes/docs keeps no locks: fix takes the file system or --store minio:<bucket>
+arky: mongodb:notes/docs keeps no locks: fix takes the file system, --store minio:<bucket> or --store s3:<bucket>
 $ echo $?
 2
 ```
@@ -97,8 +120,8 @@ command line gave it, and what failed.
 |---|---|
 | 0 | Success: each lock that had expired is removed. |
 | 2 | The command line is wrong: a `PATH` that is not a folder, a `--store mongodb:` value, or a `--store` value of any other shape. |
-| 3 | The configuration is wrong: `arky.toml`, a variable the MinIO store reads, or a MinIO store that is not built into this arky. |
-| 4 | The store failed: a MinIO server that cannot be reached or refuses the keys, or a file system error. A failure to write standard output is code 4 too. |
+| 3 | The configuration is wrong: `arky.toml`, a variable the MinIO or S3 store reads, or a MinIO or S3 store that is not built into this arky. |
+| 4 | The store failed: a MinIO server or AWS that cannot be reached or refuses the keys, or a file system error. A failure to write standard output is code 4 too. |
 
 ## Behavior
 
@@ -110,6 +133,7 @@ reports; only this command writes.
 ```console
 $ arky fix notes
 $ arky fix --store minio:arky/vault
+$ arky fix --store s3:acme-notes/vault
 ```
 
 Not built:

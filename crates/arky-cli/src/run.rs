@@ -21,11 +21,19 @@ use arky_store::lock::LockSettings;
 #[cfg(feature = "mongodb")]
 use arky_store::mongo::{MongoStore, object_path};
 #[cfg(any(feature = "minio", feature = "mongodb"))]
-use arky_store::object::{ObjectConfig, ObjectStore};
+use arky_store::object::ObjectConfig;
+#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
+use arky_store::object::ObjectStore;
+#[cfg(feature = "s3")]
+use arky_store::object::S3ObjectConfig;
 use arky_store::{Precondition, Revision, Store as _, StoreError, StorePath};
 use os_shim::System;
+#[cfg(any(feature = "minio", feature = "s3"))]
+use os_shim::bucket::Bucket;
 #[cfg(any(feature = "minio", feature = "mongodb"))]
 use os_shim::bucket::MinioBucket;
+#[cfg(feature = "s3")]
+use os_shim::bucket::S3Bucket;
 
 #[cfg(feature = "mongodb")]
 use crate::cli::bucket_and_prefix;
@@ -76,7 +84,7 @@ impl Failure {
         Self {
             code: 2,
             message: format!(
-                "{arg} keeps no locks: fix takes the file system or --store minio:<bucket>"
+                "{arg} keeps no locks: fix takes the file system, --store minio:<bucket> or --store s3:<bucket>"
             ),
         }
     }
@@ -116,7 +124,7 @@ impl Failure {
     }
 
     /// The store `arg` names failed to open.
-    #[cfg(any(feature = "minio", feature = "mongodb"))]
+    #[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
     fn store(arg: &StoreArg, error: &StoreError) -> Self {
         Self {
             code: store_code(error),
@@ -131,7 +139,7 @@ impl Failure {
         }
     }
 
-    #[cfg(not(all(feature = "minio", feature = "mongodb")))]
+    #[cfg(not(all(feature = "minio", feature = "mongodb", feature = "s3")))]
     fn unbuilt(arg: &StoreArg, store: &str) -> Self {
         Self {
             code: 3,
@@ -164,17 +172,21 @@ impl Settings {
 }
 
 /// `path` as the command line wrote it, as a path of a store `--store` names.
-#[cfg(any(feature = "minio", feature = "mongodb"))]
+#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
 fn as_written(path: &Path) -> Result<StorePath, Failure> {
     let text = path.to_str().ok_or_else(|| Failure::not_utf8(path))?;
     StorePath::new(text).map_err(|error| Failure::of_store(path, None, &error))
 }
 
 /// Creates the bucket a write to the store `named` goes to when it is
-/// missing: the store's own for `minio:`, its files' for `mongodb:`. The file
-/// system has none.
-#[cfg(any(feature = "minio", feature = "mongodb"))]
-async fn ensure_bucket(store: &AnyStore<'_>, named: Option<&StoreArg>) -> Result<(), Failure> {
+/// missing: the store's own for `minio:` and `s3:`, its files' for `mongodb:`.
+/// The file system has none.
+#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
+async fn ensure_bucket(
+    #[cfg(feature = "s3")] system: &dyn System,
+    store: &AnyStore<'_>,
+    named: Option<&StoreArg>,
+) -> Result<(), Failure> {
     let Some(arg) = named else {
         return Ok(());
     };
@@ -183,9 +195,28 @@ async fn ensure_bucket(store: &AnyStore<'_>, named: Option<&StoreArg>) -> Result
         AnyStore::Minio(objects) => objects.ensure().await,
         #[cfg(feature = "mongodb")]
         AnyStore::Mongo(mongo) => mongo.ensure_files_bucket().await,
+        #[cfg(feature = "s3")]
+        AnyStore::S3(objects) => {
+            let key = kms_key(system)?;
+            objects.ensure(key.as_deref()).await
+        }
         AnyStore::File(_) | _ => Ok(()),
     };
     ensured.map_err(|error| Failure::store(arg, &error))
+}
+
+/// The KMS key a bucket that a write creates in AWS S3 is encrypted with:
+/// `ARKY_S3_KMS_KEY_ARN`, or `None` when it is not set.
+#[cfg(feature = "s3")]
+fn kms_key(system: &dyn System) -> Result<Option<String>, Failure> {
+    match system.env_var("ARKY_S3_KMS_KEY_ARN") {
+        Ok(arn) => Ok(Some(arn)),
+        Err(VarError::NotPresent) => Ok(None),
+        Err(VarError::NotUnicode(_)) => Err(Failure::configuration(
+            "ARKY_S3_KMS_KEY_ARN is not UTF-8: it holds the KMS key a new S3 bucket is encrypted with"
+                .to_owned(),
+        )),
+    }
 }
 
 /// Removes each expired lock under `path` in the store `named` names, and
@@ -213,6 +244,15 @@ async fn fix(
                 collection: _,
                 database: _,
             } => return Err(Failure::keeps_no_locks(arg)),
+            #[cfg(feature = "s3")]
+            StoreArg::S3 { bucket, prefix } => {
+                fix_aws_objects(system, arg, bucket, prefix.as_deref(), path, lock).await?
+            }
+            #[cfg(not(feature = "s3"))]
+            StoreArg::S3 {
+                bucket: _,
+                prefix: _,
+            } => return Err(Failure::unbuilt(arg, "S3")),
         },
     };
     for line in removed {
@@ -258,6 +298,25 @@ async fn fix_files(
         .collect())
 }
 
+/// `fix` over the AWS S3 store `arg` names: the store paths of the locks
+/// under `path`, the whole prefix when `None`.
+#[cfg(feature = "s3")]
+async fn fix_aws_objects(
+    system: &dyn System,
+    arg: &StoreArg,
+    bucket: &str,
+    prefix: Option<&str>,
+    path: Option<&Path>,
+    lock: LockSettings,
+) -> Result<Vec<String>, Failure> {
+    let under = prefix
+        .map(StorePath::new)
+        .transpose()
+        .map_err(|error| Failure::store(arg, &error))?;
+    let store = aws_objects(system, bucket, under, lock)?;
+    remove_locks(&store, arg, path).await
+}
+
 /// `fix` over the `MinIO` store `arg` names: the store paths of the locks
 /// under `path`, the whole prefix when `None`.
 #[cfg(feature = "minio")]
@@ -274,6 +333,20 @@ async fn fix_objects(
         .transpose()
         .map_err(|error| Failure::store(arg, &error))?;
     let store = objects(system, bucket, under, lock)?;
+    remove_locks(&store, arg, path).await
+}
+
+/// The store paths of the expired locks `store` removed under `path`, the
+/// whole prefix when `None`.
+#[cfg(any(feature = "minio", feature = "s3"))]
+async fn remove_locks<B>(
+    store: &ObjectStore<'_, B>,
+    arg: &StoreArg,
+    path: Option<&Path>,
+) -> Result<Vec<String>, Failure>
+where
+    B: Bucket,
+{
     let folder = path.map(as_written).transpose()?;
     let removed = store
         .remove_expired_locks(folder.as_ref())
@@ -293,6 +366,10 @@ async fn finish_deletions(
 ) -> Result<(), Failure> {
     match arg {
         StoreArg::Minio {
+            bucket: _,
+            prefix: _,
+        }
+        | StoreArg::S3 {
             bucket: _,
             prefix: _,
         } => Err(Failure::keeps_no_deletions(arg)),
@@ -323,6 +400,10 @@ async fn finish_deletions(
 fn finish_deletions(arg: &StoreArg) -> Result<(), Failure> {
     Err(match arg {
         StoreArg::Minio {
+            bucket: _,
+            prefix: _,
+        }
+        | StoreArg::S3 {
             bucket: _,
             prefix: _,
         } => Failure::keeps_no_deletions(arg),
@@ -474,6 +555,43 @@ fn objects<'system>(
         .map_err(|error| Failure::configuration(error.to_string()))
 }
 
+/// The AWS S3 store `arg` names, `bucket` under `prefix` in the region
+/// `ARKY_S3_REGION` names, and `path` as a path of it.
+#[cfg(feature = "s3")]
+fn s3<'system>(
+    system: &'system dyn System,
+    arg: &StoreArg,
+    bucket: &str,
+    prefix: Option<&str>,
+    path: &Path,
+    lock: LockSettings,
+) -> Result<(AnyStore<'system>, StorePath), Failure> {
+    let under = prefix
+        .map(StorePath::new)
+        .transpose()
+        .map_err(|error| Failure::store(arg, &error))?;
+    let store = aws_objects(system, bucket, under, lock)?;
+    let at = as_written(path)?;
+    Ok((AnyStore::S3(store), at))
+}
+
+/// The AWS S3 bucket `bucket`, its keys under `prefix`, in the region the
+/// environment names.
+#[cfg(feature = "s3")]
+fn aws_objects<'system>(
+    system: &'system dyn System,
+    bucket: &str,
+    prefix: Option<StorePath>,
+    lock: LockSettings,
+) -> Result<ObjectStore<'system, S3Bucket>, Failure> {
+    let region = variable(system, "ARKY_S3_REGION", "the AWS region of the S3 bucket")?;
+    let config = S3ObjectConfig::new(region, bucket.to_owned(), prefix);
+    // `open_s3` fails only on a key missing from the environment.
+    ObjectStore::open_s3(system, config)
+        .map(|store| store.locking(lock))
+        .map_err(|error| Failure::configuration(error.to_string()))
+}
+
 /// The store `named` names, the file system's when it is `None`, and `path`
 /// as a path of it.
 #[cfg(feature = "mongodb")]
@@ -507,6 +625,13 @@ async fn open<'system>(
             let store = mongodb(system, arg, database, collection).await?;
             Ok((AnyStore::Mongo(store), at))
         }
+        #[cfg(feature = "s3")]
+        StoreArg::S3 { bucket, prefix } => s3(system, arg, bucket, prefix.as_deref(), path, lock),
+        #[cfg(not(feature = "s3"))]
+        StoreArg::S3 {
+            bucket: _,
+            prefix: _,
+        } => Err(Failure::unbuilt(arg, "S3")),
     }
 }
 
@@ -537,6 +662,13 @@ fn open<'system>(
             collection: _,
             database: _,
         } => Err(Failure::unbuilt(arg, "MongoDB")),
+        #[cfg(feature = "s3")]
+        StoreArg::S3 { bucket, prefix } => s3(system, arg, bucket, prefix.as_deref(), path, lock),
+        #[cfg(not(feature = "s3"))]
+        StoreArg::S3 {
+            bucket: _,
+            prefix: _,
+        } => Err(Failure::unbuilt(arg, "S3")),
     };
     future::ready(opened)
 }
@@ -744,7 +876,7 @@ fn store_text(system: &dyn System, path: &Path) -> Result<String, Failure> {
 
 /// The value of the variable `name`, which holds `holds`; the error names the
 /// variable, never its value.
-#[cfg(any(feature = "minio", feature = "mongodb"))]
+#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
 fn variable(system: &dyn System, name: &str, holds: &str) -> Result<String, Failure> {
     system.env_var(name).map_err(|error| {
         let what = match error {
@@ -774,8 +906,14 @@ async fn write(
         let bundle = document::get(&machine(system, settings.lock), &source, settings.missing)
             .await
             .map_err(|error| Failure::of_document(file, &source, &error))?;
-        #[cfg(any(feature = "minio", feature = "mongodb"))]
-        ensure_bucket(&store, named).await?;
+        #[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
+        ensure_bucket(
+            #[cfg(feature = "s3")]
+            system,
+            &store,
+            named,
+        )
+        .await?;
         document::put_bundle(&store, &at, &bundle, &settings.options, &Precondition::None).await
     } else {
         let bytes = if let Some(file) = input {
@@ -792,8 +930,14 @@ async fn write(
                 .map_err(|error| Failure::stream("standard input", &error))?;
             bytes
         };
-        #[cfg(any(feature = "minio", feature = "mongodb"))]
-        ensure_bucket(&store, named).await?;
+        #[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
+        ensure_bucket(
+            #[cfg(feature = "s3")]
+            system,
+            &store,
+            named,
+        )
+        .await?;
         document::put(
             &store,
             &at,

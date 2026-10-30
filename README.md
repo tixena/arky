@@ -5,8 +5,8 @@ arky reads a markdown file, frontmatter included, into a typed tree and writes t
 | Crate | What it does | Features |
 |---|---|---|
 | [`arky`](https://docs.rs/arky) | Parses, edits and writes documents: the frontmatter as typed values, the body as a tree of sections, blocks and inline nodes. Gives the markdown, JSON, zip and binary forms, and the `TypeScript`, Zod and JSON Schema descriptions of its types. | `zod` and `jsonschema` (default), `mongodb`, `binary-format` |
-| [`arky-store`](https://docs.rs/arky-store) | Keeps documents and the files they embed in a folder, a bucket or MongoDB, behind one async `Store` trait. A save made from a stale read fails instead of overwriting. | `minio`, `mongodb`, `binary-format`; none by default |
-| `arky-cli` | The `arky` command: gets and writes documents in every form, from the disk or a store. | `binary-format`, `mongodb` and `minio`, all on by default |
+| [`arky-store`](https://docs.rs/arky-store) | Keeps documents and the files they embed in a folder, a bucket or MongoDB, behind one async `Store` trait. A save made from a stale read fails instead of overwriting. | `minio`, `s3`, `mongodb`, `binary-format`; none by default |
+| `arky-cli` | The `arky` command: gets and writes documents in every form, from the disk or a store. | `binary-format`, `mongodb`, `minio` and `s3`, all on by default |
 
 ## Installation
 
@@ -81,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Store | What it keeps | Feature |
 |---|---|---|
 | `FileStore` | Each file at its path under a root folder, through an os-shim `System`: the disk, or `MemorySystem` in tests | none |
-| `ObjectStore` | Each file as an object of one bucket, under an optional key prefix, on MinIO or another S3-compatible server | `minio` |
+| `ObjectStore` | Each file as an object of one bucket, under an optional key prefix, on MinIO, another S3-compatible server, or AWS S3 | `minio` or `s3` |
 | `MongoStore` | Each document as one MongoDB record whose frontmatter a query can name, and each embedded file once, by its SHA-256, in a MinIO bucket | `mongodb` |
 | `AnyStore` | Whichever of the three a program opened at run time | none; each variant needs its store's feature |
 
@@ -106,7 +106,7 @@ $ arky get post.md --frontmatter toml
 $ arky fix notes
 ```
 
-A path with no store is a file on disk. `-s minio:<bucket>`, with an optional `/<prefix>`, or `-s mongodb:<database>/<collection>` reads and writes a store instead. `arky fix` removes the expired locks that stopped saves left behind.
+A path with no store is a file on disk. `-s minio:<bucket>` or `-s s3:<bucket>`, each with an optional `/<prefix>`, or `-s mongodb:<database>/<collection>` reads and writes a store instead. `arky fix` removes the expired locks that stopped saves left behind.
 
 ## Documentation
 
