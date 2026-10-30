@@ -24,12 +24,12 @@
 //! | --- | --- | --- |
 //! | [`FileStore`](file::FileStore) | Each file at its path under a root folder, through an os-shim `System`: the disk, or `MemorySystem` in tests. | none |
 #![cfg_attr(
-    feature = "minio",
-    doc = "| [`ObjectStore`](object::ObjectStore) | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket`, or `MemoryBucket` in tests. `ensure` creates a missing bucket. | `minio` |"
+    any(feature = "minio", feature = "s3"),
+    doc = "| [`ObjectStore`](object::ObjectStore) | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket` with `minio`, an AWS S3 bucket through `S3Bucket` with `s3`, or `MemoryBucket` in tests. `ensure` creates a missing bucket. | `minio` or `s3` |"
 )]
 #![cfg_attr(
-    not(feature = "minio"),
-    doc = "| `ObjectStore` | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket`, or `MemoryBucket` in tests. `ensure` creates a missing bucket. | `minio` |"
+    not(any(feature = "minio", feature = "s3")),
+    doc = "| `ObjectStore` | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket` with `minio`, an AWS S3 bucket through `S3Bucket` with `s3`, or `MemoryBucket` in tests. `ensure` creates a missing bucket. | `minio` or `s3` |"
 )]
 #![cfg_attr(
     feature = "mongodb",
@@ -354,6 +354,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! | Feature | What it turns on | What your manifest also needs |
 //! | --- | --- | --- |
 //! | `minio` | The `object` module and `AnyStore::Minio`. | `os-shim` with its `minio` feature, to name `MinioBucket` or `MemoryBucket`. |
+//! | `s3` | The `object` module and `AnyStore::S3`. | `os-shim` with its `s3` feature, to name `S3Bucket`. |
 //! | `mongodb` | The `mongo` module, `AnyStore::Mongo`, and `minio`. | `bson = { version = "3.1", features = ["serde"] }`, to write the filters `MongoStore::find` takes. A `MongoDB` server, and an S3-compatible server for the embedded files. |
 //! | `binary-format` | arky's `binary-format`, so `document::put` takes `Form::Binary`. | Nothing more. |
 //!
@@ -388,8 +389,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!   for saves of many large files.
 //! - What a delete where no file is answers differs per store: see each
 //!   store's `delete`.
-//! - There is no in-memory `MongoDB` store, and `AnyStore::Minio` holds only a
-//!   store over `MinioBucket`.
+//! - There is no in-memory `MongoDB` store. `AnyStore::Minio` holds only a
+//!   store over `MinioBucket`, and `AnyStore::S3` only one over `S3Bucket`.
 //! - An object key holds at most 1024 bytes, the key prefix included.
 
 extern crate alloc;
@@ -405,7 +406,7 @@ pub mod file;
 pub mod lock;
 #[cfg(feature = "mongodb")]
 pub mod mongo;
-#[cfg(feature = "minio")]
+#[cfg(any(feature = "minio", feature = "s3"))]
 pub mod object;
 
 use alloc::collections::BTreeMap;
@@ -558,7 +559,8 @@ pub enum StoreError {
 #[non_exhaustive]
 pub struct Capabilities {
     /// A precondition is checked and the write done as one step: `false` in
-    /// the file store, `true` in the `MinIO` store and the `MongoDB` store.
+    /// the file store, `true` in the `MinIO` store, the AWS S3 store and the
+    /// `MongoDB` store.
     pub atomic_preconditions: bool,
 }
 
@@ -566,11 +568,11 @@ pub struct Capabilities {
 /// deleted and listed by [`StorePath`].
 ///
 /// Each method returns a future that is `Send`. [`file::FileStore`] is always
-/// here, `object::ObjectStore` with the `minio` feature, `mongo::MongoStore`
-/// with the `mongodb` feature, and [`any::AnyStore`] holds any of them. Code
-/// outside this crate cannot build a [`Revision`], a [`Stored`] or a
-/// [`Capabilities`], so it implements `Store` only by passing each call on to
-/// one of these stores.
+/// here, `object::ObjectStore` with the `minio` feature or the `s3` feature,
+/// `mongo::MongoStore` with the `mongodb` feature, and [`any::AnyStore`] holds
+/// any of them. Code outside this crate cannot build a [`Revision`], a
+/// [`Stored`] or a [`Capabilities`], so it implements `Store` only by passing
+/// each call on to one of these stores.
 pub trait Store {
     /// What this store can do that not every store can.
     fn capabilities(&self) -> Capabilities;
@@ -582,8 +584,8 @@ pub trait Store {
     /// `StoreError::Conflict` when `precondition` does not hold, which
     /// includes `Precondition::Matches` where no file is.
     /// `StoreError::NotFound` where no file is under `Precondition::None` or
-    /// `Precondition::Absent`, except in the `MinIO` store, whose delete then
-    /// succeeds. `StoreError::Backend` when the store fails.
+    /// `Precondition::Absent`, except in the `MinIO` and AWS S3 stores, whose
+    /// delete then succeeds. `StoreError::Backend` when the store fails.
     fn delete(
         &self,
         path: &StorePath,

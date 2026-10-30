@@ -1,8 +1,11 @@
 //! The store over `MemoryBucket`, and over a bucket whose every call fails;
 //! under `cfg(store_tests)`, over `MinioBucket` on the `RustFS` server
-//! `just test-stores` starts.
+//! `just test-stores` starts; under `cfg(s3_tests)`, over `S3Bucket` on the
+//! AWS bucket `just test-s3` names.
 
-#[cfg(store_tests)]
+#[cfg(all(s3_tests, feature = "s3"))]
+mod aws;
+#[cfg(all(store_tests, feature = "minio"))]
 mod server;
 
 use alloc::collections::BTreeMap;
@@ -21,7 +24,11 @@ use std::time::SystemTime;
 use os_shim::bucket::{Bucket, Condition, Head, MemoryBucket, Object, ObjectError};
 use os_shim::mock::MemorySystem;
 
-use super::{ObjectConfig, ObjectStore};
+#[cfg(feature = "minio")]
+use super::ObjectConfig;
+use super::ObjectStore;
+#[cfg(feature = "s3")]
+use super::S3ObjectConfig;
 use crate::any::AnyStore;
 use crate::document::{get, put};
 use crate::lock::{Locks as _, lock_of};
@@ -136,6 +143,7 @@ fn path(text: &str) -> StorePath {
 }
 
 /// The configuration of a server no test reaches.
+#[cfg(feature = "minio")]
 fn nowhere() -> ObjectConfig {
     ObjectConfig::new(
         "http://127.0.0.1:9".to_owned(),
@@ -469,6 +477,7 @@ fn a_precondition_is_checked_in_one_step_with_the_write() {
     assert!(store.capabilities().atomic_preconditions);
 }
 
+#[cfg(feature = "minio")]
 #[test]
 fn open_names_the_variable_that_is_not_set_and_never_shows_the_secret_key() {
     let none = MemorySystem::new();
@@ -505,6 +514,7 @@ fn open_names_the_variable_that_is_not_set_and_never_shows_the_secret_key() {
     assert!(any.capabilities().atomic_preconditions);
 }
 
+#[cfg(feature = "minio")]
 #[tokio::test]
 async fn ensure_on_a_server_that_cannot_be_reached_is_a_backend_error_that_never_shows_the_secret_key()
  {
@@ -517,6 +527,35 @@ async fn ensure_on_a_server_that_cannot_be_reached_is_a_backend_error_that_never
     let refused = store.ensure().await.err().unwrap();
     assert!(matches!(refused, StoreError::Backend(_)), "{refused:?}");
     assert!(!refused.to_string().contains(SECRET), "{refused}");
+}
+
+#[cfg(feature = "s3")]
+#[test]
+fn an_s3_open_names_the_variable_that_is_not_set_and_never_shows_the_secret_key() {
+    let config = || S3ObjectConfig::new("eu-west-1".to_owned(), "notes".to_owned(), None);
+    let access =
+        StoreError::Backend("AWS_ACCESS_KEY_ID is not set: it holds the AWS access key".to_owned());
+    assert_eq!(
+        ObjectStore::open_s3(&MemorySystem::new(), config()).err(),
+        Some(access)
+    );
+    let only_access = MemorySystem::new()
+        .with_env("AWS_ACCESS_KEY_ID", "arky")
+        .unwrap();
+    let secret = StoreError::Backend(
+        "AWS_SECRET_ACCESS_KEY is not set: it holds the AWS secret key".to_owned(),
+    );
+    assert_eq!(
+        ObjectStore::open_s3(&only_access, config()).err(),
+        Some(secret)
+    );
+    let both = only_access
+        .with_env("AWS_SECRET_ACCESS_KEY", SECRET)
+        .unwrap();
+    let store = ObjectStore::open_s3(&both, config()).unwrap();
+    let shown = format!("{store:?}");
+    assert!(!shown.contains(SECRET), "{shown}");
+    assert!(AnyStore::S3(store).capabilities().atomic_preconditions);
 }
 
 #[tokio::test]
