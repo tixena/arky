@@ -20,6 +20,11 @@ use os_shim::real::RealSystem;
 use predicates::ord::eq;
 use tokio::runtime::{Builder, Runtime};
 
+/// A bucket no other test uses, so it is missing until a write creates it.
+const CREATED_BUCKET: &str = "arky-cli-mongo-files";
+
+const CREATED_DATABASE: &str = "arky_test_binary_created";
+
 const DATABASE: &str = "arky_test_binary_copies";
 
 const FINISHED_DATABASE: &str = "arky_test_binary_finished";
@@ -305,5 +310,49 @@ fn a_second_write_with_a_new_picture_deletes_the_old_object_and_its_record_and_g
         let record = records.find_one(doc! {}).await.unwrap().unwrap();
         assert_eq!(record.get_str("object").unwrap(), objects[0].as_str());
         client.database(REPLACED_DATABASE).drop().await.unwrap();
+    });
+}
+
+#[test]
+fn a_write_whose_files_bucket_is_missing_creates_it_and_keeps_the_picture_there() {
+    let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+    let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let root = folder.path();
+    let store = format!("mongodb:{CREATED_DATABASE}/files");
+    fs::create_dir_all(root.join("draft/media")).unwrap();
+    fs::write(root.join("draft/report.md"), REPORT).unwrap();
+    fs::write(root.join("draft/media/logo.png"), PNG).unwrap();
+    Command::cargo_bin("arky")
+        .unwrap()
+        .current_dir(root)
+        .args([
+            "write",
+            "notes/report.md",
+            "-i",
+            "draft/report.md",
+            "--store",
+            &store,
+        ])
+        .env("ARKY_MONGODB_URI", uri())
+        .env("ARKY_MONGODB_BUCKET", format!("{CREATED_BUCKET}/files"))
+        .env("ARKY_MINIO_ENDPOINT", endpoint())
+        .env("ARKY_MINIO_REGION", REGION)
+        .assert()
+        .success();
+    runtime.block_on(async {
+        let prefix = StorePath::new("files").unwrap();
+        let config = ObjectConfig::new(
+            endpoint(),
+            REGION.to_owned(),
+            CREATED_BUCKET.to_owned(),
+            Some(prefix),
+        );
+        let files = ObjectStore::open(&MACHINE, config).unwrap();
+        let objects = files.list(None).await.unwrap();
+        assert_eq!(objects.len(), 1);
+        assert!(objects[0].as_str().starts_with("files/"), "{}", objects[0]);
+        assert_eq!(files.read(&objects[0]).await.unwrap().bytes, PNG);
+        let client = Client::with_uri_str(uri()).await.unwrap();
+        client.database(CREATED_DATABASE).drop().await.unwrap();
     });
 }

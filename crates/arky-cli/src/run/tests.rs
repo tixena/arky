@@ -425,7 +425,8 @@ fn each_minio_variable_left_out_exits_3_with_one_line_naming_it() {
 
 #[cfg(feature = "minio")]
 #[test]
-fn a_minio_server_that_cannot_be_reached_exits_4_naming_the_path_and_no_key() {
+fn a_minio_server_that_cannot_be_reached_exits_4_naming_the_path_on_a_get_and_the_store_on_a_write()
+{
     let system = minio_variables(vault("# A\n"), None);
     let got = arky(&system, &["get", "a.md", "-s", "minio:notes"], b"");
     failed(&got, 4, "arky: a.md: ");
@@ -435,9 +436,29 @@ fn a_minio_server_that_cannot_be_reached_exits_4_naming_the_path_and_no_key() {
         &["write", "b.md", "-s", "minio:notes/vault"],
         b"# B\n",
     );
-    failed(&written, 4, "arky: b.md: ");
+    failed(&written, 4, "arky: minio:notes/vault: ");
     hides_the_keys(&written);
     assert!(!system.exists(Path::new("/vault/b.md")).unwrap());
+}
+
+#[cfg(feature = "minio")]
+#[test]
+fn a_write_to_a_minio_store_whose_input_is_missing_exits_6_naming_it_before_any_request() {
+    let system = minio_variables(vault("# A\n"), None);
+    let written = arky(
+        &system,
+        &[
+            "write",
+            "b.md",
+            "-s",
+            "minio:notes/vault",
+            "-i",
+            "missing.md",
+        ],
+        b"",
+    );
+    failed(&written, 6, "arky: missing.md: no file at this path\n");
+    hides_the_keys(&written);
 }
 
 #[cfg(feature = "minio")]

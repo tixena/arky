@@ -102,7 +102,8 @@ kept as objects whose keys start with `<prefix>/`, or with no prefix when it is
 left out: with the prefix `vault`, the store path `notes/task.md` is the object
 `vault/notes/task.md`. The prefix follows the rules of a store path: parts joined
 by `/`, none empty, none `.` or `..`. The bucket goes in the path of each
-request's address, `<endpoint>/<bucket>/<key>`, and must already exist.
+request's address, `<endpoint>/<bucket>/<key>`. A write creates the bucket when
+it does not exist; the keys then need the right to create a bucket.
 
 | Variable | What it holds |
 |---|---|
@@ -113,7 +114,9 @@ request's address, `<endpoint>/<bucket>/<key>`, and must already exist.
 
 A missing variable exits with code 3, on one line that names it. A prefix that is
 not a store path exits with code 2. A server that cannot be reached, or that
-refuses the keys, exits with code 4.
+refuses the keys, exits with code 4. A server that refuses to create a missing
+bucket exits with code 4, on one line that names the store, such as
+`arky: minio:notes/vault: …`.
 
 ```console
 $ export ARKY_MINIO_ENDPOINT=http://127.0.0.1:9000 ARKY_MINIO_REGION=us-east-1
@@ -162,7 +165,8 @@ A missing variable exits with code 3, on one line that names it. An
 prefix is not a store path, exits with code 3 too. A server that cannot be
 reached exits with code 4. A write of a document that embeds a file whose
 deletion stopped halfway exits with code 4, naming
-[`arky asset finish-deletions`](asset.md), which finishes that deletion.
+[`arky asset finish-deletions`](asset.md), which finishes that deletion. A write
+creates the bucket `ARKY_MONGODB_BUCKET` names when it does not exist.
 
 ```console
 $ export ARKY_MONGODB_URI=mongodb://127.0.0.1:27017 ARKY_MONGODB_BUCKET=notes/mongodb
@@ -193,7 +197,7 @@ A `--store` value of any other shape is a usage error, code 2.
 | 1 | The document could not be read or written in the form: not UTF-8, not JSON, not this version of the binary form, or a value the frontmatter syntax cannot hold. Without `--allow-missing`, a file the document embeds that is missing, or an embed that leaves the document's folder. |
 | 2 | The command line is wrong: an unknown option, a missing path, a value an option does not take, or a path that cannot name a file, such as `/`. |
 | 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARKY_MONGODB_URI` or `ARKY_MONGODB_BUCKET` for `--store mongodb:`, or `ARKY_MINIO_ENDPOINT` for `--store minio:`, or the store is not built into this arky. |
-| 4 | The store failed: a file system error, such as a folder that is not writable, a MongoDB or MinIO server that cannot be reached, or a MinIO server that refuses the keys. A failure to read standard input is code 4 too, and so is a write of a document whose lock another write of the same document holds, and a write to a MongoDB store that another write of the same document finished first, which the store refuses with `<path>: the file changed, or a file is already there`. |
+| 4 | The store failed: a file system error, such as a folder that is not writable, a MongoDB or MinIO server that cannot be reached, a MinIO server that refuses the keys, or one that refuses to create a missing bucket. A failure to read standard input is code 4 too, and so is a write of a document whose lock another write of the same document holds, and a write to a MongoDB store that another write of the same document finished first, which the store refuses with `<path>: the file changed, or a file is already there`. |
 | 6 | No file at the path of `--input`. |
 
 Code 5 belongs to the language-model provider error of the validation run; see
