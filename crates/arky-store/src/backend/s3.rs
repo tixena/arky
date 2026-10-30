@@ -2,10 +2,13 @@
 //! command line writes it: `s3://[key:secret@]bucket[/prefix]?region=…[&kms=…]`.
 
 use core::future;
+use std::path::PathBuf;
 
 use os_shim::bucket::{Bucket, S3Bucket, S3Config};
 
-use super::{Backend, Bucketed, Context, Keys, bucket_url, decoded, parsed, prefix_of};
+use super::{
+    Backend, Bucketed, Context, Keys, bucket_url, decoded, missing_keys, parsed, prefix_of,
+};
 use crate::lock::LockSettings;
 use crate::object::{ObjectStore, S3ObjectConfig};
 use crate::{BoxFuture, DynStore, StoreError, StorePath};
@@ -37,6 +40,10 @@ impl Backend for S3Backend {
         'store: 'call,
     {
         Box::pin(future::ready(parse(text).and_then(|s3| store(s3, context))))
+    }
+
+    fn resolve(&self, _text: &str) -> Option<Result<(String, PathBuf), StoreError>> {
+        None
     }
 
     fn schemes(&self) -> &'static [&'static str] {
@@ -100,7 +107,8 @@ pub(super) fn parse(text: &str) -> Result<S3, StoreError> {
 }
 
 /// The store `s3` names: over the keys it carries, else over
-/// `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
+/// `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, a variable not set being
+/// `NotConfigured`.
 fn store<'store>(
     s3: S3,
     context: Context<'store>,
@@ -110,7 +118,7 @@ fn store<'store>(
         ObjectStore::new(S3Bucket::new(config), s3.prefix, context.system)
     } else {
         let config = S3ObjectConfig::new(s3.region, s3.bucket, s3.prefix);
-        ObjectStore::open_s3(context.system, config)?
+        ObjectStore::open_s3(context.system, config).map_err(missing_keys)?
     };
     Ok(Box::new(finished(opened, s3.kms, context.lock)))
 }

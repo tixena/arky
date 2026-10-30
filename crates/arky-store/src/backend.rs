@@ -11,6 +11,7 @@
 //! | file | `file`, and every plain path | `file:///srv/notes` absolute; `file:notes`, `notes` relative to the base folder | none |
 //! | `MinIO`, with the feature `minio` | `minio+http`, `minio+https` | `minio+https://[key:secret@]host[:port]/bucket[/prefix]` | `region` (`us-east-1`) |
 //! | AWS S3, with the feature `s3` | `s3` | `s3://[key:secret@]bucket[/prefix]` | `region` (required), `kms` (none) |
+//! | saved store, added with [`Backends::with`] | `arky` | `arky://<name>[/<folder>]` | none |
 //!
 //! A bucket store string with no keys reads them from `AWS_ACCESS_KEY_ID` and
 //! `AWS_SECRET_ACCESS_KEY`. Before a backend reads the text, each `${NAME}` in
@@ -19,6 +20,7 @@
 //! as written, its variables unexpanded, and never a value read from the
 //! environment.
 
+pub mod arky;
 mod expand;
 mod file;
 #[cfg(feature = "minio")]
@@ -29,7 +31,7 @@ mod s3;
 use alloc::borrow::Cow;
 use alloc::collections::BTreeMap;
 use core::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use os_shim::System;
 use percent_encoding::percent_decode_str;
@@ -131,7 +133,9 @@ pub trait Backend: Send + Sync {
     /// # Errors
     ///
     /// `StoreError::InvalidStore` naming the part of `text` that is wrong,
-    /// without the text itself: the registry adds it as written.
+    /// without the text itself: the registry adds it as written. A message
+    /// that starts with `text` in backticks, as one naming another store
+    /// does, has it written back as written instead.
     fn open<'call, 'store>(
         &'store self,
         text: &'call str,
@@ -139,6 +143,15 @@ pub trait Backend: Send + Sync {
     ) -> BoxFuture<'call, Result<Box<dyn DynStore + 'store>, StoreError>>
     where
         'store: 'call;
+
+    /// The store string `text` stands for, and its base folder, when this
+    /// backend is a name for another store; `None` by default.
+    ///
+    /// A backend that opens a store string nested in an option follows a
+    /// saved name through it, without knowing the configuration.
+    fn resolve(&self, _text: &str) -> Option<Result<(String, PathBuf), StoreError>> {
+        None
+    }
 
     /// The schemes it answers, such as `["minio+http", "minio+https"]`.
     fn schemes(&self) -> &'static [&'static str];
@@ -157,7 +170,9 @@ pub trait Backend: Send + Sync {
 /// The backends a program can open, by scheme.
 ///
 /// [`Backends::default`] holds the built-in backends: `file` always, `MinIO`
-/// with the feature `minio`, AWS S3 with the feature `s3`.
+/// with the feature `minio`, AWS S3 with the feature `s3`. It leaves out
+/// [`arky::SavedBackend`], which needs the saved stores: add it with
+/// `with(SavedBackend::new(…))`.
 ///
 /// ```rust
 /// use std::path::Path;
@@ -234,7 +249,7 @@ impl Backends {
     /// not UTF-8, or when `text` is `<scheme>://…` and no backend answers the
     /// scheme. `StoreError::InvalidStore` when `text` does not parse or names
     /// an option its backend does not take. A bucket store string with no
-    /// keys is `StoreError::Backend` when `AWS_ACCESS_KEY_ID` or
+    /// keys is `StoreError::NotConfigured` when `AWS_ACCESS_KEY_ID` or
     /// `AWS_SECRET_ACCESS_KEY` is not set. Every message names `text` as
     /// written, never a variable's value.
     pub async fn open<'store>(
@@ -257,7 +272,7 @@ impl Backends {
         backend
             .open(expanded.text(), context)
             .await
-            .map_err(|error| expanded.as_written(text, error))
+            .map_err(|error| expanded.as_written(text, expanded.text(), error))
     }
 
     /// The store a path argument names and the path inside it, or `None` when
@@ -283,7 +298,7 @@ impl Backends {
         let expanded = expand(text, system, true)?;
         let (container, rest) = backend
             .split(expanded.text())
-            .map_err(|error| expanded.as_written(text, error))?;
+            .map_err(|error| expanded.as_written(text, expanded.text(), error))?;
         let Ok(path) = StorePath::new(&rest) else {
             return Err(StoreError::InvalidStore(format!(
                 "`{text}`: what follows the store is not a store path"
@@ -298,8 +313,25 @@ impl Backends {
         let store = backend
             .open(&container, context)
             .await
-            .map_err(|error| expanded.as_written(text, error))?;
+            .map_err(|error| expanded.as_written(text, &container, error))?;
         Ok(Some((store, path)))
+    }
+
+    /// The store string `text` stands for and the folder its relative paths
+    /// are relative to: what the backend of its scheme resolves it to, or
+    /// `text` and `base` unchanged when that backend names no other store or
+    /// no backend answers.
+    ///
+    /// # Errors
+    ///
+    /// The errors of the backend's [`Backend::resolve`], such as
+    /// `StoreError::NotConfigured` for an `arky://<name>` that no
+    /// `arky.toml` saves.
+    pub fn resolve(&self, text: &str, base: &Path) -> Result<(String, PathBuf), StoreError> {
+        scheme_of(text)
+            .and_then(|(scheme, _)| self.answering(scheme))
+            .and_then(|backend| backend.resolve(text))
+            .unwrap_or_else(|| Ok((text.to_owned(), base.to_path_buf())))
     }
 
     /// These backends and `backend`; a scheme already answered is answered by
@@ -587,6 +619,18 @@ fn keys(url: &Url) -> Result<Option<Keys>, StoreError> {
         _ => Err(StoreError::InvalidStore(
             "a key with no secret, or a secret with no key: the keys are key:secret@".to_owned(),
         )),
+    }
+}
+
+/// `error`, from a bucket store opened over the keys of the environment, as
+/// `NotConfigured` when a key variable is not set or not UTF-8, its message
+/// kept: that is the only `Backend` error opening one gives.
+#[cfg(any(feature = "minio", feature = "s3"))]
+fn missing_keys(error: StoreError) -> StoreError {
+    if let StoreError::Backend(message) = error {
+        StoreError::NotConfigured(message)
+    } else {
+        error
     }
 }
 

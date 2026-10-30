@@ -34,6 +34,10 @@ impl Backend for FileBackend {
         ))
     }
 
+    fn resolve(&self, _text: &str) -> Option<Result<(String, PathBuf), StoreError>> {
+        None
+    }
+
     fn schemes(&self) -> &'static [&'static str] {
         &["file"]
     }
