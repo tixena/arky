@@ -63,6 +63,22 @@ impl Expanded {
             })
     }
 
+    /// `error` with each value of this expansion, as it is or percent-encoded,
+    /// written back as `${NAME}` in an `InvalidStore` or `NotConfigured`
+    /// message; any other error unchanged.
+    #[cfg(feature = "mongodb")]
+    pub(super) fn hide(&self, error: StoreError) -> StoreError {
+        match error {
+            StoreError::InvalidStore(message) => StoreError::InvalidStore(self.hidden(&message)),
+            StoreError::NotConfigured(message) => StoreError::NotConfigured(self.hidden(&message)),
+            StoreError::Backend(_)
+            | StoreError::Conflict(_)
+            | StoreError::InvalidPath(_)
+            | StoreError::NotFound(_)
+            | StoreError::Unsupported(_) => error,
+        }
+    }
+
     /// The text, each `${NAME}` replaced by its value.
     pub(super) fn text(&self) -> &str {
         &self.text
