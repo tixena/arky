@@ -111,7 +111,8 @@ impl From<FormatArg> for Form {
 }
 
 /// A store named on the command line, a place inside a server:
-/// `minio:<bucket>`, `minio:<bucket>/<prefix>` or `mongodb:<database>/<collection>`.
+/// `minio:<bucket>`, `minio:<bucket>/<prefix>`, `mongodb:<database>/<collection>`,
+/// `s3:<bucket>` or `s3:<bucket>/<prefix>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreArg {
     Minio {
@@ -121,6 +122,10 @@ pub enum StoreArg {
     Mongodb {
         collection: String,
         database: String,
+    },
+    S3 {
+        bucket: String,
+        prefix: Option<String>,
     },
 }
 
@@ -143,6 +148,14 @@ impl StoreArg {
                 database: database.to_owned(),
             })
     }
+
+    /// The store of `s3:` and `place`, `<bucket>` or `<bucket>/<prefix>`.
+    fn s3(place: &str) -> Option<Self> {
+        bucket_and_prefix(place).map(|(bucket, prefix)| Self::S3 {
+            bucket: bucket.to_owned(),
+            prefix: prefix.map(str::to_owned),
+        })
+    }
 }
 
 impl fmt::Display for StoreArg {
@@ -160,6 +173,14 @@ impl fmt::Display for StoreArg {
                 collection,
                 database,
             } => write!(f, "mongodb:{database}/{collection}"),
+            Self::S3 {
+                bucket,
+                prefix: None,
+            } => write!(f, "s3:{bucket}"),
+            Self::S3 {
+                bucket,
+                prefix: Some(prefix),
+            } => write!(f, "s3:{bucket}/{prefix}"),
         }
     }
 }
@@ -171,10 +192,11 @@ impl FromStr for StoreArg {
         let store = match text.split_once(':') {
             Some(("minio", place)) => Self::minio(place),
             Some(("mongodb", place)) => Self::mongodb(place),
+            Some(("s3", place)) => Self::s3(place),
             Some(_) | None => None,
         };
         store.ok_or_else(|| {
-            "a store is minio:<bucket>, minio:<bucket>/<prefix> or mongodb:<database>/<collection>"
+            "a store is minio:<bucket>, minio:<bucket>/<prefix>, s3:<bucket>, s3:<bucket>/<prefix> or mongodb:<database>/<collection>"
                 .to_owned()
         })
     }

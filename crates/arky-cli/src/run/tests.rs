@@ -58,7 +58,7 @@ const LOCK: &str = "/vault/notes/report.md.arky-lock";
 
 /// The four variables a `MinIO` store reads: a server no process listens on,
 /// whose connection is refused at once, and keys no output may show.
-#[cfg(any(feature = "minio", feature = "mongodb"))]
+#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
 const MINIO_VARIABLES: [(&str, &str); 4] = [
     ("ARKY_MINIO_ENDPOINT", "http://127.0.0.1:1"),
     ("ARKY_MINIO_REGION", "us-east-1"),
@@ -69,6 +69,15 @@ const MINIO_VARIABLES: [(&str, &str); 4] = [
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n not a real picture";
 
 const REPORT: &str = "# Report\n\n![Logo](media/logo.png)\n";
+
+/// The three variables an AWS S3 store reads: a region, and the keys of
+/// `MINIO_VARIABLES`.
+#[cfg(feature = "s3")]
+const S3_VARIABLES: [(&str, &str); 3] = [
+    ("ARKY_S3_REGION", "eu-west-1"),
+    MINIO_VARIABLES[2],
+    MINIO_VARIABLES[3],
+];
 
 const SAVE: [&str; 4] = ["write", "notes/report.md", "-i", "draft/report.md"];
 
@@ -140,7 +149,7 @@ fn failed(ran: &Ran, code: u8, line: &str) {
 }
 
 /// Asserts neither key of `MINIO_VARIABLES` is on `ran`'s standard error.
-#[cfg(any(feature = "minio", feature = "mongodb"))]
+#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
 fn hides_the_keys(ran: &Ran) {
     for (_, key) in &MINIO_VARIABLES[2..] {
         assert!(!ran.stderr.contains(key), "{}", ran.stderr);
@@ -192,6 +201,17 @@ fn mongodb_variables(system: MemorySystem, left_out: Option<&str>) -> MemorySyst
 
 fn read(system: &MemorySystem, path: &str) -> String {
     system.read_to_string(Path::new(path)).unwrap()
+}
+
+/// `system` with each of `S3_VARIABLES` but the one named `left_out`.
+#[cfg(feature = "s3")]
+fn s3_variables(system: MemorySystem, left_out: Option<&str>) -> MemorySystem {
+    S3_VARIABLES
+        .iter()
+        .filter(|(name, _)| Some(*name) != left_out)
+        .fold(system, |with, (name, value)| {
+            with.with_env(name, value).unwrap()
+        })
 }
 
 fn since_start(system: &MemorySystem) -> Duration {
@@ -609,6 +629,76 @@ fn with_a_mongodb_store_the_path_is_used_as_written_and_checked_before_connectin
     }
 }
 
+#[cfg(not(feature = "s3"))]
+#[test]
+fn an_s3_store_exits_3_in_a_build_without_it() {
+    let system = vault("# A\n");
+    let s3 = arky(
+        &system,
+        &["write", "b.md", "-s", "s3:notes/drafts"],
+        b"# B\n",
+    );
+    failed(
+        &s3,
+        3,
+        "arky: s3:notes/drafts: this arky is built without the S3 store",
+    );
+    assert!(!system.exists(Path::new("/vault/b.md")).unwrap());
+}
+
+#[cfg(feature = "s3")]
+#[test]
+fn each_s3_variable_left_out_exits_3_with_one_line_naming_it() {
+    let lines = [
+        "arky: ARKY_S3_REGION is not set: it holds the AWS region of the S3 bucket\n",
+        "arky: AWS_ACCESS_KEY_ID is not set: it holds the AWS access key\n",
+        "arky: AWS_SECRET_ACCESS_KEY is not set: it holds the AWS secret key\n",
+    ];
+    for ((name, _), line) in S3_VARIABLES.iter().zip(lines) {
+        let system = s3_variables(vault("# A\n"), Some(name));
+        let got = arky(&system, &["get", "a.md", "-s", "s3:notes/vault"], b"");
+        failed(&got, 3, line);
+        hides_the_keys(&got);
+        let written = arky(
+            &system,
+            &["write", "b.md", "--store", "s3:notes/vault"],
+            b"# B\n",
+        );
+        failed(&written, 3, line);
+        hides_the_keys(&written);
+        assert!(!system.exists(Path::new("/vault/b.md")).unwrap());
+    }
+}
+
+#[cfg(feature = "s3")]
+#[test]
+fn with_an_s3_store_the_path_is_used_as_written_and_checked_before_any_request() {
+    let system = s3_variables(vault("# A\n"), None);
+    for path in ["/notes/a.md", "./a.md", "notes/../a.md"] {
+        let ran = arky(&system, &["get", path, "-s", "s3:notes/vault"], b"");
+        failed(
+            &ran,
+            2,
+            &format!("arky: {path}: `{path}` is not a store path\n"),
+        );
+    }
+}
+
+#[cfg(feature = "s3")]
+#[test]
+fn an_s3_prefix_that_is_not_a_store_path_exits_2_naming_the_store() {
+    let system = vault("# A\n");
+    for prefix in ["a//b", "vault/", "..", "a/./b"] {
+        let store = format!("s3:notes/{prefix}");
+        let ran = arky(&system, &["get", "a.md", "-s", &store], b"");
+        failed(
+            &ran,
+            2,
+            &format!("arky: {store}: `{prefix}` is not a store path\n"),
+        );
+    }
+}
+
 #[test]
 fn asset_finish_deletions_of_a_minio_store_exits_2_naming_the_store() {
     let system = vault("# A\n");
@@ -621,6 +711,22 @@ fn asset_finish_deletions_of_a_minio_store_exits_2_naming_the_store() {
         &ran,
         2,
         "arky: minio:arky keeps no deletions: asset finish-deletions takes --store mongodb:<database>/<collection>\n",
+    );
+}
+
+#[cfg(feature = "mongodb")]
+#[test]
+fn finish_deletions_on_an_s3_store_exits_2() {
+    let system = vault("# A\n");
+    let ran = arky(
+        &system,
+        &["asset", "finish-deletions", "--store", "s3:notes"],
+        b"",
+    );
+    failed(
+        &ran,
+        2,
+        "arky: s3:notes keeps no deletions: asset finish-deletions takes --store mongodb:<database>/<collection>\n",
     );
 }
 
@@ -1279,7 +1385,7 @@ fn fix_of_a_mongodb_store_exits_2_naming_the_store() {
     failed(
         &ran,
         2,
-        "arky: mongodb:notes/docs keeps no locks: fix takes the file system or --store minio:<bucket>\n",
+        "arky: mongodb:notes/docs keeps no locks: fix takes the file system, --store minio:<bucket> or --store s3:<bucket>\n",
     );
     assert!(system.exists(Path::new(LOCK)).unwrap());
 }
@@ -1345,6 +1451,18 @@ fn fix_of_a_minio_path_that_is_not_a_store_path_exits_2_before_any_request() {
     let system = minio_variables(locked(6, &[]), None);
     let ran = arky(&system, &["fix", "./notes", "-s", "minio:notes"], b"");
     failed(&ran, 2, "arky: ./notes: `./notes` is not a store path\n");
+}
+
+#[cfg(feature = "s3")]
+#[test]
+fn fix_on_an_s3_store_reads_its_variables() {
+    let system = s3_variables(locked(6, &[]), Some("ARKY_S3_REGION"));
+    let ran = arky(&system, &["fix", "-s", "s3:notes"], b"");
+    failed(
+        &ran,
+        3,
+        "arky: ARKY_S3_REGION is not set: it holds the AWS region of the S3 bucket\n",
+    );
 }
 
 #[test]

@@ -21,11 +21,12 @@ doc = false
 workspace = true
 
 [features]
-default = ["binary-format", "mongodb", "minio"]
+default = ["binary-format", "mongodb", "minio", "s3"]
 # get -f binary and write -f binary: arky's binary form.
 binary-format = ["arky/binary-format", "arky-store/binary-format"]
 minio = ["arky-store/minio"]
 mongodb = ["arky-store/mongodb"]
+s3 = ["arky-store/s3"]
 
 [dependencies]
 arky.workspace = true

@@ -26,7 +26,7 @@ The path is required.
 | `-f`, `--format <FORMAT>` | The form the document is read in: `markdown`, the default, `json`, `binary`, or `zip`. |
 | `--frontmatter <SYNTAX>` | The syntax the stored frontmatter is written in: `yaml`, the default, or `toml`. |
 | `-i`, `--input <FILE>` | A file of the machine to read the document from, in place of standard input. It is never a path in a store. |
-| `-s`, `--store <STORE>` | The store the document goes to: `minio:<bucket>`, `minio:<bucket>/<prefix>`, or `mongodb:<database>/<collection>`. The file system when it is left out. |
+| `-s`, `--store <STORE>` | The store the document goes to: `minio:<bucket>`, `minio:<bucket>/<prefix>`, `s3:<bucket>`, `s3:<bucket>/<prefix>`, or `mongodb:<database>/<collection>`. The file system when it is left out. |
 
 `arky --help` and `arky write --help` print help; `arky --version` prints
 the version.
@@ -127,14 +127,49 @@ arky: AWS_SECRET_ACCESS_KEY is not set: it holds the MinIO secret key
 exit 3
 ```
 
-In the file system and in a MinIO store, a write holds a lock on the document
-while it writes: the file `<file>.arky-lock` beside the document, such as
-`notes/report.md.arky-lock` for `notes/report.md`, or the object at that key. It
-takes the lock before the first file the document embeds and gives it back after
-the document. A second write of the same document that finds the lock waits 2
-seconds, then exits with code 4 when the lock is still held, having written
-nothing. A lock older than 5 seconds has expired, and the next write of the
-document removes it. The two durations, 5 and 2 seconds, are the defaults of
+With `--store s3:<bucket>` or `--store s3:<bucket>/<prefix>`, the store is the
+AWS S3 bucket `<bucket>` in the region that `ARKY_S3_REGION` names, its files
+kept as objects whose keys start with `<prefix>/`, or with no prefix when it is
+left out: with the prefix `vault`, the store path `notes/task.md` is the object
+`vault/notes/task.md`. The prefix follows the rules of a store path: parts joined
+by `/`, none empty, none `.` or `..`. A write creates the bucket when it does not
+exist: private, in that region, and encrypted by default with the KMS key that
+`ARKY_S3_KMS_KEY_ARN` names when it is set. A bucket that exists is left as it
+is. To create a missing bucket, the keys need the right to create it, and to set
+its encryption when `ARKY_S3_KMS_KEY_ARN` is set.
+
+| Variable | What it holds |
+|---|---|
+| `ARKY_S3_REGION` | The AWS region of the bucket, such as `eu-west-1`. Required, with no default. |
+| `ARKY_S3_KMS_KEY_ARN` | The ARN of the KMS key a bucket that the write creates is encrypted with by default. Optional; with none, the write sets no encryption on the bucket it creates. |
+| `AWS_ACCESS_KEY_ID` | The access key every request is signed with. Required. |
+| `AWS_SECRET_ACCESS_KEY` | The secret key every request is signed with. Required. No output and no error shows it. |
+
+A missing variable exits with code 3, on one line that names it, and so does an
+`ARKY_S3_KMS_KEY_ARN` that is not UTF-8. A prefix that is not a store path exits
+with code 2. AWS that cannot be reached, or that refuses the keys, exits with
+code 4. AWS that refuses to create a missing bucket or to set its encryption
+exits with code 4, on one line that names the store, such as
+`arky: s3:acme-notes/vault: …`.
+
+```console
+$ export ARKY_S3_REGION=eu-west-1 AWS_ACCESS_KEY_ID=AKIA... AWS_SECRET_ACCESS_KEY=...
+$ export ARKY_S3_KMS_KEY_ARN=arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab
+$ arky write notes/report.md -i draft/report.md -s s3:acme-notes/vault; echo "exit $?"
+exit 0
+$ unset ARKY_S3_REGION; arky write notes/task.md -s s3:acme-notes/vault < a.md; echo "exit $?"
+arky: ARKY_S3_REGION is not set: it holds the AWS region of the S3 bucket
+exit 3
+```
+
+In the file system, in a MinIO store and in an S3 store, a write holds a lock on
+the document while it writes: the file `<file>.arky-lock` beside the document,
+such as `notes/report.md.arky-lock` for `notes/report.md`, or the object at that
+key. It takes the lock before the first file the document embeds and gives it
+back after the document. A second write of the same document that finds the lock
+waits 2 seconds, then exits with code 4 when the lock is still held, having
+written nothing. A lock older than 5 seconds has expired, and the next write of
+the document removes it. The two durations, 5 and 2 seconds, are the defaults of
 `expires_seconds` and `wait_seconds` in the `[lock]` table of
 [`arky.toml`](../config.md).
 
@@ -178,13 +213,15 @@ arky: ARKY_MONGODB_BUCKET is not set: it holds the MinIO bucket of a MongoDB sto
 exit 3
 ```
 
-An arky built without its default features has neither the MinIO store nor the
-MongoDB store, and a `--store minio:` or `--store mongodb:` value exits with code
-3 in it:
+An arky built without its default features has none of the MinIO store, the S3
+store and the MongoDB store, and a `--store minio:`, `--store s3:` or
+`--store mongodb:` value exits with code 3 in it:
 
 ```console
 $ arky write b.md --store minio:notes/drafts < a.md
 arky: minio:notes/drafts: this arky is built without the MinIO store
+$ arky write b.md --store s3:notes/drafts < a.md
+arky: s3:notes/drafts: this arky is built without the S3 store
 ```
 
 A `--store` value of any other shape is a usage error, code 2.
@@ -196,8 +233,8 @@ A `--store` value of any other shape is a usage error, code 2.
 | 0 | Success. |
 | 1 | The document could not be read or written in the form: not UTF-8, not JSON, not this version of the binary form, or a value the frontmatter syntax cannot hold. Without `--allow-missing`, a file the document embeds that is missing, or an embed that leaves the document's folder. |
 | 2 | The command line is wrong: an unknown option, a missing path, a value an option does not take, or a path that cannot name a file, such as `/`. |
-| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARKY_MONGODB_URI` or `ARKY_MONGODB_BUCKET` for `--store mongodb:`, or `ARKY_MINIO_ENDPOINT` for `--store minio:`, or the store is not built into this arky. |
-| 4 | The store failed: a file system error, such as a folder that is not writable, a MongoDB or MinIO server that cannot be reached, a MinIO server that refuses the keys, or one that refuses to create a missing bucket. A failure to read standard input is code 4 too, and so is a write of a document whose lock another write of the same document holds, and a write to a MongoDB store that another write of the same document finished first, which the store refuses with `<path>: the file changed, or a file is already there`. |
+| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARKY_MONGODB_URI` or `ARKY_MONGODB_BUCKET` for `--store mongodb:`, `ARKY_MINIO_ENDPOINT` for `--store minio:`, or `ARKY_S3_REGION` or `ARKY_S3_KMS_KEY_ARN` for `--store s3:`, or the store is not built into this arky. |
+| 4 | The store failed: a file system error, such as a folder that is not writable, a MongoDB or MinIO server or AWS that cannot be reached, a MinIO server or AWS that refuses the keys, or one that refuses to create a missing bucket. A failure to read standard input is code 4 too, and so is a write of a document whose lock another write of the same document holds, and a write to a MongoDB store that another write of the same document finished first, which the store refuses with `<path>: the file changed, or a file is already there`. |
 | 6 | No file at the path of `--input`. |
 
 Code 5 belongs to the language-model provider error of the validation run; see

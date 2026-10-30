@@ -22,7 +22,7 @@ The path is required.
 | `-f`, `--format <FORMAT>` | The form the document is written in: `markdown`, the default, `json`, `binary`, or `zip`. |
 | `--frontmatter <SYNTAX>` | The syntax the frontmatter is written in, in the markdown and zip forms: `yaml`, the default, or `toml`. |
 | `-o`, `--output <FILE>` | A file of the machine to write the document to, in place of standard output. It is never a path in a store. |
-| `-s`, `--store <STORE>` | The store the document is in: `minio:<bucket>`, `minio:<bucket>/<prefix>`, or `mongodb:<database>/<collection>`. The file system when it is left out. |
+| `-s`, `--store <STORE>` | The store the document is in: `minio:<bucket>`, `minio:<bucket>/<prefix>`, `s3:<bucket>`, `s3:<bucket>/<prefix>`, or `mongodb:<database>/<collection>`. The file system when it is left out. |
 
 `arky --help` and `arky get --help` print help; `arky --version` prints the
 version.
@@ -122,6 +122,33 @@ arky: ARKY_MINIO_REGION is not set: it holds the region the MinIO server expects
 exit 3
 ```
 
+With `--store s3:<bucket>` or `--store s3:<bucket>/<prefix>`, the store is the
+AWS S3 bucket `<bucket>` in the region that `ARKY_S3_REGION` names, its files
+kept as objects whose keys start with `<prefix>/`, or with no prefix when it is
+left out: with the prefix `vault`, the store path `notes/task.md` is the object
+`vault/notes/task.md`. The prefix follows the rules of a store path: parts joined
+by `/`, none empty, none `.` or `..`. The bucket must already exist: a get creates
+no bucket.
+
+| Variable | What it holds |
+|---|---|
+| `ARKY_S3_REGION` | The AWS region of the bucket, such as `eu-west-1`. Required, with no default. |
+| `AWS_ACCESS_KEY_ID` | The access key every request is signed with. Required. |
+| `AWS_SECRET_ACCESS_KEY` | The secret key every request is signed with. Required. No output and no error shows it. |
+
+A missing variable exits with code 3, on one line that names it. A prefix that is
+not a store path exits with code 2. AWS that cannot be reached, or that refuses
+the keys, exits with code 4.
+
+```console
+$ export ARKY_S3_REGION=eu-west-1 AWS_ACCESS_KEY_ID=AKIA... AWS_SECRET_ACCESS_KEY=...
+$ arky get notes/task.md | arky write notes/task.md --store s3:acme-notes/vault
+$ arky get notes/task.md --store s3:acme-notes/vault > task.md
+$ unset ARKY_S3_REGION; arky get notes/task.md -s s3:acme-notes/vault; echo "exit $?"
+arky: ARKY_S3_REGION is not set: it holds the AWS region of the S3 bucket
+exit 3
+```
+
 With `--store mongodb:<database>/<collection>`, the store is the collection
 `<collection>` of the database `<database>`, on the MongoDB server that the
 environment variable `ARKY_MONGODB_URI` names. The command line holds names
@@ -154,13 +181,15 @@ arky: ARKY_MONGODB_BUCKET is not set: it holds the MinIO bucket of a MongoDB sto
 exit 3
 ```
 
-An arky built without its default features has neither the MinIO store nor the
-MongoDB store, and a `--store minio:` or `--store mongodb:` value exits with code
-3 in it:
+An arky built without its default features has none of the MinIO store, the S3
+store and the MongoDB store, and a `--store minio:`, `--store s3:` or
+`--store mongodb:` value exits with code 3 in it:
 
 ```console
 $ arky get notes/task.md --store minio:notes
 arky: minio:notes: this arky is built without the MinIO store
+$ arky get notes/task.md --store s3:notes
+arky: s3:notes: this arky is built without the S3 store
 ```
 
 A `--store` value of any other shape is a usage error, code 2.
@@ -172,8 +201,8 @@ A `--store` value of any other shape is a usage error, code 2.
 | 0 | Success. |
 | 1 | The document could not be read or written in the form: not UTF-8, not JSON, not this version of the binary form, or a value the frontmatter syntax cannot hold. Without `--allow-missing`, a file the document embeds that is missing, or an embed that leaves the document's folder. |
 | 2 | The command line is wrong: an unknown option, a missing path, a value an option does not take, `--embed` without `--output` or with a form other than markdown, or a path that cannot name a file, such as `/`. |
-| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARKY_MONGODB_URI` or `ARKY_MONGODB_BUCKET` for `--store mongodb:`, or `ARKY_MINIO_ENDPOINT` for `--store minio:`, or the store is not built into this arky. |
-| 4 | The store failed: a file system error, such as a folder that is not writable or a path that is a folder, a MongoDB or MinIO server that cannot be reached, or a MinIO server that refuses the keys. A failure to write standard output is code 4 too. |
+| 3 | The store is not configured, or its configuration is wrong: a variable the store reads is not set or is not UTF-8, such as `ARKY_MONGODB_URI` or `ARKY_MONGODB_BUCKET` for `--store mongodb:`, `ARKY_MINIO_ENDPOINT` for `--store minio:`, or `ARKY_S3_REGION` for `--store s3:`, or the store is not built into this arky. |
+| 4 | The store failed: a file system error, such as a folder that is not writable or a path that is a folder, a MongoDB or MinIO server or AWS that cannot be reached, or a MinIO server or AWS that refuses the keys. A failure to write standard output is code 4 too. |
 | 6 | No file at the path. |
 
 Code 5 belongs to the language-model provider error of the validation run; see

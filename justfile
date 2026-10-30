@@ -12,6 +12,7 @@ lint-rust:
     cargo clippy -p arky --all-targets -- -D warnings
     cargo clippy -p arky --all-targets --features binary-format -- -D warnings
     cargo clippy -p arky-cli --all-targets --no-default-features -- -D warnings
+    cargo clippy -p arky-cli --all-targets --no-default-features --features s3 -- -D warnings
     cargo fmt --all --check
 
 build: build-rust
@@ -68,8 +69,9 @@ test-s3:
         echo "test-s3 needs: ${missing[*]}" >&2
         exit 1
     fi
-    cargo clippy -p arky-store --all-targets --all-features --config 'build.rustflags=["--cfg", "s3_tests"]' -- -D warnings
+    cargo clippy -p arky-store -p arky-cli --all-targets --all-features --config 'build.rustflags=["--cfg", "s3_tests"]' -- -D warnings
     cargo test -p arky-store --all-features --config 'build.rustflags=["--cfg", "s3_tests"]' object::tests::aws
+    cargo test -p arky-cli --all-features --config 'build.rustflags=["--cfg", "s3_tests"]' --test s3
 
 # Full pipeline: lint everything, build everything, run tests.
 all: lint test test-stores

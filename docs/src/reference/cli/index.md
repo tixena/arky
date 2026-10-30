@@ -34,7 +34,7 @@ or `ARKY_CONFIG` names and that does not exist, or a file that does not read,
 exits with code 3 and one line; a missing `arky.toml` that nothing named is not
 an error.
 
-Eleven environment variables are read:
+Thirteen environment variables are read:
 
 | Variable | Effect |
 |---|---|
@@ -47,8 +47,10 @@ Eleven environment variables are read:
 | `ARKY_MONGODB_BUCKET` | The MinIO bucket of a MongoDB store's files, `<bucket>` or `<bucket>/<prefix>`, used by `arky get` and `arky write` with `--store mongodb:`, and by `arky asset finish-deletions`. |
 | `ARKY_MINIO_ENDPOINT` | The address of the MinIO server, such as `http://127.0.0.1:9000`, used by `arky get` and `arky write` with `--store minio:` or `--store mongodb:`, and by `arky asset finish-deletions`. |
 | `ARKY_MINIO_REGION` | The region the MinIO server expects, such as `us-east-1`, used by `arky get` and `arky write` with `--store minio:` or `--store mongodb:`, and by `arky asset finish-deletions`. |
-| `AWS_ACCESS_KEY_ID` | The access key every MinIO request is signed with, used by `arky get` and `arky write` with `--store minio:` or `--store mongodb:`, and by `arky asset finish-deletions`. |
-| `AWS_SECRET_ACCESS_KEY` | The secret key every MinIO request is signed with, used by `arky get` and `arky write` with `--store minio:` or `--store mongodb:`, and by `arky asset finish-deletions`. |
+| `ARKY_S3_REGION` | The AWS region of the bucket, such as `eu-west-1`, used by `arky get`, `arky write` and `arky fix` with `--store s3:`. |
+| `ARKY_S3_KMS_KEY_ARN` | The KMS key a bucket that `arky write --store s3:` creates is encrypted with by default. Optional; a bucket that exists is left as it is. |
+| `AWS_ACCESS_KEY_ID` | The access key every MinIO and S3 request is signed with, used by `arky get` and `arky write` with `--store minio:`, `--store s3:` or `--store mongodb:`, and by `arky asset finish-deletions`. |
+| `AWS_SECRET_ACCESS_KEY` | The secret key every MinIO and S3 request is signed with, used by `arky get` and `arky write` with `--store minio:`, `--store s3:` or `--store mongodb:`, and by `arky asset finish-deletions`. |
 
 ## Output formats
 
