@@ -1,8 +1,8 @@
 //! Store strings over `MemorySystem`: the expansion of their variables, the
-//! file, `MinIO` and AWS S3 backends, a backend of a test's own, a store
-//! string in a path argument, a folder inside a store, and a saved store by
-//! name; under `cfg(store_tests)`, the `MinIO` backend on the `RustFS` server
-//! `just test-stores` starts.
+//! file, `MinIO` and AWS S3 backends, the `MongoDB` backend up to the server,
+//! a backend of a test's own, a store string in a path argument, a folder
+//! inside a store, and a saved store by name; under `cfg(store_tests)`, the
+//! `MinIO` backend on the `RustFS` server `just test-stores` starts.
 
 #[cfg(all(store_tests, feature = "minio"))]
 mod server;
@@ -28,6 +28,8 @@ use super::expand::expand;
 use super::file::FileBackend;
 #[cfg(feature = "minio")]
 use super::minio::{self, Minio, MinioBackend};
+#[cfg(feature = "mongodb")]
+use super::mongodb::{self, Mongo, MongoBackend};
 #[cfg(feature = "s3")]
 use super::s3::{self, S3, S3Backend};
 use super::{Backend, Backends, Context, within};
@@ -70,6 +72,21 @@ url = "file:notes?x=1"
 
 /// The file that saves the stores of the tests of saved stores.
 const SAVED_IN: &str = "/home/me/arky.toml";
+
+/// `/home/me/arky.toml` in the tests of the `MongoDB` backend.
+#[cfg(feature = "mongodb")]
+const SAVED_MEDIA: &str = r#"[stores.leaky]
+url = "minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/arky-files?regoin=${MINIO_PASSWORD}"
+
+[stores.media]
+url = "minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/arky-files"
+
+[stores.notes]
+url = "file:notes"
+
+[stores.unset]
+url = "minio+http://k:${UNSET_SECRET}@127.0.0.1:9000/b"
+"#;
 
 /// A backend of a test's own: `memory://<name>` is a file store at
 /// `/memory/<name>`.
@@ -200,6 +217,20 @@ impl EnsureBucket for Recorded {
 fn drafts(system: &MemorySystem) -> Box<dyn DynStore + '_> {
     let store = Box::new(FileStore::new(PathBuf::from("/notes"), system));
     within(store, path("drafts"))
+}
+
+/// `text` parsed by the `MongoDB` backend, its `files` resolved through the
+/// default backends and the stores `system` saves.
+#[cfg(feature = "mongodb")]
+fn mongo_parsed(system: &MemorySystem, text: &str) -> Result<Mongo, StoreError> {
+    let backends = saved_backends(system, "/home/me");
+    let context = Context {
+        backends: &backends,
+        base: Path::new("/home/me"),
+        lock: LockSettings::default(),
+        system,
+    };
+    mongodb::parse(text, context)
 }
 
 fn path(text: &str) -> StorePath {
@@ -524,6 +555,14 @@ fn the_default_backends_answer_file_and_the_bucket_schemes_of_this_build() {
         cfg!(feature = "minio")
     );
     assert_eq!(backends.answering("s3").is_some(), cfg!(feature = "s3"));
+    assert_eq!(
+        backends.answering("mongodb").is_some(),
+        cfg!(feature = "mongodb")
+    );
+    assert_eq!(
+        backends.answering("mongodb+srv").is_some(),
+        cfg!(feature = "mongodb")
+    );
     assert!(backends.answering("hdfs").is_none());
     assert!(backends.answering("arky").is_none());
 }
@@ -1260,4 +1299,274 @@ async fn the_kms_key_of_an_s3_string_reaches_the_bucket_it_creates() {
     let finished = s3::finished(store, parsed.kms, LockSettings::default());
     Store::ensure_container(&finished).await.unwrap();
     assert_eq!(*bucket.kms.lock().unwrap(), [Some(kms.to_owned())]);
+}
+
+#[cfg(feature = "mongodb")]
+#[test]
+fn a_mongodb_string_hands_the_driver_its_text_without_the_collection_and_files_and_resolves_a_saved_files_name()
+ {
+    let system = saving(secrets(), SAVED_MEDIA);
+    let text =
+        "mongodb+srv://u:p@cluster0.example.net/notes/docs?retryWrites=true&files=arky://media";
+    let parsed = mongo_parsed(&system, text).unwrap();
+    assert_eq!(
+        parsed.driver,
+        "mongodb+srv://u:p@cluster0.example.net/notes?retryWrites=true"
+    );
+    assert_eq!(parsed.database, "notes");
+    assert_eq!(parsed.collection, "docs");
+    assert_eq!(parsed.folder, None);
+    let media = Minio {
+        bucket: "arky-files".to_owned(),
+        endpoint: "https://minio.example.com".to_owned(),
+        keys: Some(Keys {
+            access: "AKIA0000".to_owned(),
+            secret: PASSWORD.to_owned(),
+        }),
+        prefix: None,
+        region: "us-east-1".to_owned(),
+    };
+    assert_eq!(parsed.files, media);
+}
+
+#[cfg(feature = "mongodb")]
+#[test]
+fn a_mongodb_string_keeps_its_host_list_and_reads_a_percent_encoded_files_string() {
+    let system = MemorySystem::new();
+    let files = "files=minio%2Bhttp%3A%2F%2Fk%3As%40127.0.0.1%3A9000%2Fb%2Fvault";
+    let text = format!("mongodb://u:p@h1:27017,h2:27018/notes/docs?{files}&replicaSet=rs0");
+    let parsed = mongo_parsed(&system, &text).unwrap();
+    assert_eq!(
+        parsed.driver,
+        "mongodb://u:p@h1:27017,h2:27018/notes?replicaSet=rs0"
+    );
+    let bucket = Minio {
+        bucket: "b".to_owned(),
+        endpoint: "http://127.0.0.1:9000".to_owned(),
+        keys: Some(Keys {
+            access: "k".to_owned(),
+            secret: "s".to_owned(),
+        }),
+        prefix: Some(path("vault")),
+        region: "us-east-1".to_owned(),
+    };
+    assert_eq!(parsed.files, bucket);
+    let alone = mongo_parsed(&system, &format!("mongodb://h/notes/docs?{files}")).unwrap();
+    assert_eq!(alone.driver, "mongodb://h/notes");
+}
+
+#[cfg(feature = "mongodb")]
+#[tokio::test]
+async fn a_folder_after_the_collection_is_a_folder_inside_the_store() {
+    let system = saving(secrets(), SAVED_MEDIA);
+    let parsed = mongo_parsed(&system, "mongodb://h/notes/docs/drafts?files=arky://media").unwrap();
+    assert_eq!(parsed.driver, "mongodb://h/notes");
+    assert_eq!(parsed.folder, Some(path("drafts")));
+    let collection = Box::new(FileStore::new(PathBuf::from("/collection"), &system));
+    let store = mongodb::placed(collection, parsed.folder);
+    store
+        .write(&path("a.md"), b"# A\n", &Precondition::Absent)
+        .await
+        .unwrap();
+    assert_eq!(
+        system
+            .read_to_string(Path::new("/collection/drafts/a.md"))
+            .unwrap(),
+        "# A\n"
+    );
+}
+
+#[cfg(feature = "mongodb")]
+#[test]
+fn a_mongodb_string_in_a_path_splits_after_the_collection_and_keeps_its_query_on_it() {
+    let splits = [
+        (
+            "mongodb://u:p@h1:27017,h2:27017/notes/docs/ideas/a%20b.md?files=arky://media",
+            "mongodb://u:p@h1:27017,h2:27017/notes/docs?files=arky://media",
+            "ideas/a b.md",
+        ),
+        (
+            "mongodb+srv://c/notes/docs",
+            "mongodb+srv://c/notes/docs",
+            "",
+        ),
+    ];
+    for (text, container, inside) in splits {
+        let split = MongoBackend.split(text).unwrap();
+        assert_eq!(split, (container.to_owned(), inside.to_owned()), "{text}");
+    }
+}
+
+#[cfg(feature = "mongodb")]
+#[tokio::test]
+async fn a_mongodb_string_with_no_collection_no_files_files_elsewhere_or_an_unknown_option_is_an_invalid_store()
+ {
+    let system = saving(secrets(), SAVED_MEDIA);
+    let backends = saved_backends(&system, "/home/me");
+    let base = Path::new("/home/me");
+    let lock = LockSettings::default();
+    let elsewhere = "a MongoDB store keeps its files in MinIO only";
+    let refused = [
+        (
+            "mongodb://h/notes?files=arky://media",
+            "no collection: the path is /<database>/<collection>",
+        ),
+        (
+            "mongodb://h/notes/?files=arky://media",
+            "no collection: the path is /<database>/<collection>",
+        ),
+        (
+            "mongodb://h//docs?files=arky://media",
+            "no database: the path is /<database>/<collection>",
+        ),
+        (
+            "mongodb://h/notes/docs",
+            "files is required: the MinIO store of the collection's files",
+        ),
+        (
+            "mongodb://h/notes/docs?retryWrites=true&files=",
+            "files is required: the MinIO store of the collection's files",
+        ),
+        (
+            "mongodb://h/notes/docs?files=s3://x?region=eu-west-1",
+            &format!("files names s3; {elsewhere}"),
+        ),
+        (
+            "mongodb://h/notes/docs?files=file:media",
+            &format!("files names file; {elsewhere}"),
+        ),
+        (
+            "mongodb://h/notes/docs?files=arky://notes",
+            &format!("files names file; {elsewhere}"),
+        ),
+        (
+            "mongodb://h/notes/docs?files=media",
+            &format!("files names a plain path; {elsewhere}"),
+        ),
+        (
+            "mongodb://h/notes/docs?files=arky://media&bogus=1",
+            "bogus is an invalid option",
+        ),
+        (
+            "mongodb://h/notes/docs?files=arky://media&files=arky://media",
+            "files is given twice",
+        ),
+        (
+            "mongodb://h/notes/docs?files=arky://media#top",
+            "a fragment, which a store string does not take",
+        ),
+        (
+            "mongodb:notes/docs?files=arky://media",
+            "a MongoDB store string starts with mongodb:// or mongodb+srv://",
+        ),
+        (
+            "mongodb+srv://h:27017/notes/docs?files=arky://media",
+            "a port cannot be specified with 'mongodb+srv'",
+        ),
+        (
+            "mongodb://h/notes/..?files=arky://media",
+            "the database and the collection do not make a store path",
+        ),
+        (
+            "mongodb://h/notes/docs/..?files=arky://media",
+            "the folder after the collection is not a store path",
+        ),
+        (
+            "mongodb://h/notes/docs?files=arky://media/sub",
+            "files: `arky://media/sub`: a folder after the store name, where only a store is named",
+        ),
+        (
+            "mongodb://h/notes/docs?files=arky://leaky",
+            "files: unknown option regoin",
+        ),
+    ];
+    for (text, message) in refused {
+        let opened = backends.open(text, base, lock, &system).await;
+        let expected = StoreError::InvalidStore(format!("`{text}`: {message}"));
+        assert_eq!(opened.err(), Some(expected), "{text}");
+    }
+}
+
+#[cfg(feature = "mongodb")]
+#[tokio::test]
+async fn a_files_store_not_configured_is_not_configured_naming_the_string_and_files() {
+    let system = saving(secrets(), SAVED_MEDIA);
+    let backends = saved_backends(&system, "/home/me");
+    let base = Path::new("/home/me");
+    let lock = LockSettings::default();
+    let unset = [
+        (
+            "mongodb://h/notes/docs?files=arky://nope",
+            "`arky://nope`: no store named nope in any arky.toml",
+        ),
+        (
+            "mongodb://h/notes/docs?files=arky://unset",
+            "UNSET_SECRET is not set: `minio+http://k:${UNSET_SECRET}@127.0.0.1:9000/b` reads it",
+        ),
+        (
+            "mongodb://h/notes/docs?files=minio%2Bhttp%3A%2F%2F127.0.0.1%3A9000%2Fb",
+            "AWS_ACCESS_KEY_ID is not set: it holds the MinIO access key",
+        ),
+    ];
+    for (text, message) in unset {
+        let opened = backends.open(text, base, lock, &system).await;
+        let expected = StoreError::NotConfigured(format!("`{text}`: files: {message}"));
+        assert_eq!(opened.err(), Some(expected), "{text}");
+    }
+}
+
+#[cfg(feature = "mongodb")]
+#[tokio::test]
+async fn no_error_of_a_mongodb_string_shows_its_password() {
+    let system = saving(secrets(), SAVED_MEDIA)
+        .with_env("MONGO_PASSWORD", PASSWORD)
+        .unwrap();
+    let backends = saved_backends(&system, "/home/me");
+    let base = Path::new("/home/me");
+    let lock = LockSettings::default();
+    let server = "mongodb://u:${MONGO_PASSWORD}@h";
+    let refused = [
+        format!("{server}/notes?files=arky://media"),
+        format!("{server}//docs?files=arky://media"),
+        format!("{server}/notes/docs"),
+        format!("{server}/notes/docs?files=s3://x?region=eu-west-1"),
+        format!("{server}/notes/docs?files=arky://media&bogus=${{MONGO_PASSWORD}}"),
+        format!("{server}/notes/docs?files=arky://media&files=arky://media"),
+        format!("{server}/notes/docs?files=arky://media#${{MONGO_PASSWORD}}"),
+        format!("{server}/notes/..?files=arky://media"),
+        format!("{server}/notes/docs/..?files=arky://media"),
+        format!("{server}/notes/docs?files=arky://nope"),
+        format!("{server}/notes/docs?files=arky://leaky"),
+        format!("{server}/notes/docs?files=arky://unset"),
+        format!("{server}/notes/docs?files=minio%2Bhttp%3A%2F%2F127.0.0.1%3A9000%2Fb"),
+        "mongodb+srv://u:${MONGO_PASSWORD}@h:27017/notes/docs?files=arky://media".to_owned(),
+        "mongodb+srv://u:${MONGO_PASSWORD}@h1,h2/notes/docs?files=arky://media".to_owned(),
+    ];
+    for text in &refused {
+        let message = backends
+            .open(text, base, lock, &system)
+            .await
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(message.contains(text.as_str()), "{message}");
+        assert!(!message.contains(PASSWORD), "{message}");
+        assert!(!message.contains(PASSWORD_ENCODED), "{message}");
+    }
+    let in_paths = [
+        format!("{server}/notes/docs?files=arky://media"),
+        format!("{server}/notes?files=arky://media"),
+        format!("{server}/notes/docs/a.md?files=arky://media&bogus=1"),
+    ];
+    for text in &in_paths {
+        let message = backends
+            .open_path(text, base, lock, &system)
+            .await
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(message.contains(text.as_str()), "{message}");
+        assert!(!message.contains(PASSWORD), "{message}");
+        assert!(!message.contains(PASSWORD_ENCODED), "{message}");
+    }
 }

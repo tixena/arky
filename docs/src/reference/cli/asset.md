@@ -27,9 +27,10 @@ The store is required.
 
 ### Behavior
 
-A MongoDB store keeps each file a document embeds as the object `files/<sha256>`
-of its MinIO bucket, named by one record of the collection `<collection>_files`,
-as the MongoDB part of [arky write](write.md#stores) describes. When no document
+A MongoDB store keeps each file a document embeds as the object
+`<database>/<collection>/files/<sha256>` of its MinIO bucket, named by one record
+of the collection `<collection>_files`, as the MongoDB part of
+[arky write](write.md#stores) describes. When no document
 embeds a file any longer, a write or a deletion of a document deletes the file in
 three steps: it marks the file's record, deletes the object from the bucket, then
 deletes the record. When the bucket or the MongoDB server fails after the mark, or
@@ -54,8 +55,8 @@ can still delete the new object, and the document that embeds it loses its file.
 
 ### Output
 
-The key of each object whose deletion it finished, `files/<sha256>`, one per line
-on standard output, sorted. Nothing when no deletion had stopped.
+The path of each object whose deletion it finished, `files/<sha256>`, under
+`<database>/<collection>/` of the bucket, one per line on standard output, sorted. Nothing when no deletion had stopped.
 
 ```console
 $ arky asset finish-deletions --store mongodb:notes/files

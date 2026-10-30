@@ -4,6 +4,7 @@
 use core::future;
 use std::path::PathBuf;
 
+use os_shim::System;
 use os_shim::bucket::{MinioBucket, MinioConfig};
 
 use super::{
@@ -66,6 +67,32 @@ impl Backend for MinioBackend {
     }
 }
 
+/// The store `minio` names, its clock `system`'s: over the keys it carries,
+/// else over `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, a variable not
+/// set being `NotConfigured`.
+pub(super) fn build(
+    minio: Minio,
+    system: &dyn System,
+) -> Result<ObjectStore<'_, MinioBucket>, StoreError> {
+    if let Some(keys) = minio.keys {
+        let config = MinioConfig::new(
+            minio.endpoint,
+            minio.region,
+            minio.bucket,
+            keys.access,
+            keys.secret,
+        );
+        Ok(ObjectStore::new(
+            MinioBucket::new(config),
+            minio.prefix,
+            system,
+        ))
+    } else {
+        let config = ObjectConfig::new(minio.endpoint, minio.region, minio.bucket, minio.prefix);
+        ObjectStore::open(system, config).map_err(missing_keys)
+    }
+}
+
 /// Where the `MinIO` store string `text` says the store is.
 pub(super) fn parse(text: &str) -> Result<Minio, StoreError> {
     let Bucketed {
@@ -103,25 +130,12 @@ pub(super) fn parse(text: &str) -> Result<Minio, StoreError> {
     })
 }
 
-/// The store `minio` names, holding the context's lock: over the keys it
-/// carries, else over `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, a
-/// variable not set being `NotConfigured`.
+/// The store `minio` names, built by [`build`], holding the context's lock.
 fn store<'store>(
     minio: Minio,
     context: Context<'store>,
 ) -> Result<Box<dyn DynStore + 'store>, StoreError> {
-    let opened = if let Some(keys) = minio.keys {
-        let config = MinioConfig::new(
-            minio.endpoint,
-            minio.region,
-            minio.bucket,
-            keys.access,
-            keys.secret,
-        );
-        ObjectStore::new(MinioBucket::new(config), minio.prefix, context.system)
-    } else {
-        let config = ObjectConfig::new(minio.endpoint, minio.region, minio.bucket, minio.prefix);
-        ObjectStore::open(context.system, config).map_err(missing_keys)?
-    };
-    Ok(Box::new(opened.locking(context.lock)))
+    Ok(Box::new(
+        build(minio, context.system)?.locking(context.lock),
+    ))
 }

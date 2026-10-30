@@ -222,6 +222,34 @@ async fn a_file_is_the_object_at_its_path_under_the_prefix_or_at_its_path_with_n
 }
 
 #[tokio::test]
+async fn within_a_folder_keys_land_under_the_prefix_and_the_folder_and_list_without_them() {
+    let system = MemorySystem::new();
+    let memory = MemoryBucket::default();
+    let picture = path("files/9f86d0");
+    let place = path("notes/docs");
+    let under_vault = in_vault(&memory, &system).within(&place);
+    under_vault
+        .write(&picture, PNG, &Precondition::Absent)
+        .await
+        .unwrap();
+    ObjectStore::new(memory.clone(), None, &system)
+        .within(&place)
+        .write(&picture, PNG, &Precondition::Absent)
+        .await
+        .unwrap();
+    let keys = memory.list("").await.unwrap();
+    assert_eq!(
+        keys,
+        ["notes/docs/files/9f86d0", "vault/notes/docs/files/9f86d0"]
+    );
+    assert_eq!(
+        under_vault.list(None).await.unwrap(),
+        [path("files/9f86d0")]
+    );
+    assert_eq!(under_vault.read(&picture).await.unwrap().bytes, PNG);
+}
+
+#[tokio::test]
 async fn a_read_gives_the_bytes_and_the_tag_unchanged_and_no_object_is_not_found() {
     let system = MemorySystem::new();
     let memory = MemoryBucket::default();

@@ -6,10 +6,10 @@
 //! [`MongoStore`] keeps each document as its parsed tree, its frontmatter as
 //! plain BSON that a query can name; [`MongoStore::find`] takes such a query,
 //! and [`record::frontmatter_is`] builds one. Each file a document embeds is
-//! kept once, by the SHA-256 of its bytes, in an [`ObjectStore`] over a
-//! `MinioBucket`, and is deleted once no document embeds it. The [`record`]
-//! module holds the record types and the functions that convert them, which
-//! need no server.
+//! kept once per collection, by the SHA-256 of its bytes, in an
+//! [`ObjectStore`] over a `MinioBucket`, and is deleted once no document of
+//! the collection embeds it. The [`record`] module holds the record types and
+//! the functions that convert them, which need no server.
 //!
 //! A `MongoStore` needs a `MongoDB` server and an S3-compatible server for the
 //! files, and its futures need tokio with its timer on: a save that finds a
@@ -103,9 +103,10 @@ enum Replaced {
 /// The files of one collection of one database, each one record, with a
 /// unique index on `path`.
 ///
-/// Each file they embed is the object `files/<sha256>` of `files`, named by
-/// one record of `<collection>_files`, which has an index on
-/// `embedded_by.path`. An object nothing embeds is deleted, then its record.
+/// Each file they embed is the object `<database>/<collection>/files/<sha256>`
+/// of the files store, named by one record of `<collection>_files`, which has
+/// an index on `embedded_by.path`; no two collections share an object. An
+/// object nothing embeds is deleted, then its record.
 ///
 /// A record holds the parsed document, not its bytes: [`Store::read`] gives
 /// it back in arky's form, a valid frontmatter in YAML, whatever syntax it was
@@ -285,8 +286,14 @@ impl<'system> MongoStore<'system> {
     }
 
     /// Connects with `uri`, the connection string, keeps each embedded file
-    /// in `files`, and makes the unique index on `path` and the index on
-    /// `embedded_by.path` of `<collection>_files` where they are missing.
+    /// under `<database>/<collection>` of `files`, and makes the unique index
+    /// on `path` and the index on `embedded_by.path` of `<collection>_files`
+    /// where they are missing.
+    ///
+    /// A picture whose SHA-256 is `9f86d0…` embedded in the collection `docs`
+    /// of the database `notes` is the object `notes/docs/files/9f86d0…` of
+    /// `files`, after its prefix; embedded in `notes.drafts` too, it is a
+    /// second object, `notes/drafts/files/9f86d0…`.
     ///
     /// It reads the indexes at once, so the server must be reachable, and it
     /// runs inside a tokio runtime. `files` is usually
@@ -312,19 +319,22 @@ impl<'system> MongoStore<'system> {
     ///
     /// # Errors
     ///
-    /// `StoreError::Backend` with the driver's message.
+    /// `StoreError::InvalidPath` when `<database>/<collection>` is not a store
+    /// path, before any request, or `StoreError::Backend` with the driver's
+    /// message.
     pub async fn open(
         uri: &str,
         database: &str,
         collection: &str,
         files: ObjectStore<'system, MinioBucket>,
     ) -> Result<Self, StoreError> {
+        let place = StorePath::new(&format!("{database}/{collection}"))?;
         let client = Client::with_uri_str(uri)
             .await
             .map_err(|error| backend(&error))?;
         let store = Self {
             collection: client.database(database).collection(collection),
-            files,
+            files: files.within(&place),
             objects: client
                 .database(database)
                 .collection(&format!("{collection}_files")),
@@ -1197,8 +1207,8 @@ fn named_by(path: &StorePath, held: Document) -> Result<Replaced, StoreError> {
     Ok(named.save.map_or(Replaced::Unnamed, Replaced::Save))
 }
 
-/// The path, in the bucket of the store's files, of the object whose bytes
-/// have the SHA-256 `hash`: `files/<sha256>`.
+/// The path of the object whose bytes have the SHA-256 `hash`, under
+/// `<database>/<collection>` of the store's files: `files/<sha256>`.
 ///
 /// ```rust
 /// use arky_store::mongo::object_path;
