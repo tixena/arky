@@ -40,7 +40,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! arky = "0.1"
+//! arky = "0.2"
 //! ```
 //!
 //! Parse a file, read a frontmatter value, change it, and write the file back:
@@ -378,7 +378,7 @@ assert!(matches!(
 //!
 //! ```toml
 //! [dependencies]
-//! arky = { version = "0.1", features = ["binary-format", "mongodb"] }
+//! arky = { version = "0.2", features = ["binary-format", "mongodb"] }
 //! bson = { version = "3.1", features = ["serde"] }
 //! ```
 //!

@@ -3,7 +3,7 @@ members = ["crates/arky", "crates/arky-cli", "crates/arky-store"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98"
 authors = ["Eduardo Burgos <eduardo@tixena.com>"]
@@ -13,8 +13,8 @@ readme = "README.md"
 
 [workspace.dependencies]
 # The workspace's own crates: the folder here, the version on crates.io
-arky = { version = "0.1.1", path = "crates/arky" }
-arky-store = { version = "0.1.1", path = "crates/arky-store" }
+arky = { version = "0.2.0", path = "crates/arky" }
+arky-store = { version = "0.2.0", path = "crates/arky-store" }
 
 # Error handling
 thiserror = "2"
