@@ -12,8 +12,8 @@ arky reads a markdown file, frontmatter included, into a typed tree and writes t
 
 ```toml
 [dependencies]
-arky = "0.1"
-arky-store = "0.1"
+arky = "0.2"
+arky-store = "0.2"
 ```
 
 ```console

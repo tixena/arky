@@ -49,9 +49,9 @@
 //!
 //! ```toml
 //! [dependencies]
-//! arky = "0.1"
-//! arky-store = "0.1"
-//! os-shim = "0.1"
+//! arky = "0.2"
+//! arky-store = "0.2"
+//! os-shim = "0.2"
 //! tokio = { version = "1", features = ["rt", "macros"] }
 //! ```
 //!
@@ -362,9 +362,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! ```toml
 //! [dependencies]
-//! arky-store = { version = "0.1", features = ["mongodb"] }
+//! arky-store = { version = "0.2", features = ["mongodb"] }
 //! bson = { version = "3.1", features = ["serde"] }
-//! os-shim = { version = "0.1", features = ["minio"] }
+//! os-shim = { version = "0.2", features = ["minio"] }
 //! ```
 //!
 //! Every method of [`Store`] returns a future. Over `MemorySystem` and
