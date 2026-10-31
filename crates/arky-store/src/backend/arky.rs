@@ -37,13 +37,13 @@ const SCHEME: &str = "arky://";
 ///     let saved = b"[stores.personal_notes]\nurl = \"file:notes\"\n";
 ///     let system = MemorySystem::new().with_file("/home/me/arky.toml", saved)?;
 ///     let current_folder = Path::new("/home/me/work");
-///     let configuration = Configuration::discover(&system, current_folder)?;
+///     let configuration = Configuration::discover(&system, current_folder).await?;
 ///     let backends = Backends::default().with(SavedBackend::new(configuration.stores.clone()));
 ///     let lock = configuration.lock;
 ///
 ///     let store = backends.open("arky://personal_notes", current_folder, lock, &system).await?;
 ///     store.write(&StorePath::new("a.md")?, b"# A\n", &Precondition::Absent).await?;
-///     assert_eq!(system.read_to_string(Path::new("/home/me/notes/a.md"))?, "# A\n");
+///     assert_eq!(system.read_to_string(Path::new("/home/me/notes/a.md")).await?, "# A\n");
 ///
 ///     let in_path = "arky://personal_notes/ideas/today.md";
 ///     let (_, at) = backends.open_path(in_path, current_folder, lock, &system).await?.ok_or("a store string")?;

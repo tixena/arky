@@ -9,11 +9,7 @@ mod aws;
 mod server;
 
 use alloc::collections::BTreeMap;
-use alloc::sync::Arc;
-use core::future;
-use std::io;
-use std::path::PathBuf;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
 
 use arky::bundle::{BundledDocument, Missing};
 use arky::forms::{Form, encode};
@@ -22,18 +18,19 @@ use arky::writer::WriteOptions;
 use core::time::Duration;
 use std::time::SystemTime;
 
-use os_shim::bucket::{Bucket, Condition, Head, MemoryBucket, Object, ObjectError};
+use os_shim::bucket::{Bucket as _, Condition, Depth, MemoryBucket, RevisionToken};
 use os_shim::mock::MemorySystem;
 
 #[cfg(feature = "minio")]
 use super::ObjectConfig;
+use super::ObjectStore;
 #[cfg(feature = "s3")]
 use super::S3ObjectConfig;
-use super::{EnsureBucket, ObjectStore};
 use crate::any::AnyStore;
 use crate::document::{get, put};
 use crate::file::FileStore;
 use crate::lock::{Locks as _, lock_of};
+use crate::tests::TestBucket;
 use crate::{Precondition, Revision, Store as _, StoreError, StorePath};
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n not a real picture";
@@ -43,112 +40,26 @@ const REPORT: &str = "# Report\n\n![Logo](media/logo.png)\n";
 /// The secret key `open` reads in these tests.
 const SECRET: &str = "arky-unit-secret";
 
-/// A bucket whose every call fails as an unreachable server's would.
-struct DownBucket;
-
-impl Bucket for DownBucket {
-    fn delete(
-        &self,
-        key: &str,
-        _condition: &Condition,
-    ) -> impl Future<Output = Result<(), ObjectError>> + Send {
-        future::ready(Err(down(key)))
-    }
-
-    fn get(&self, key: &str) -> impl Future<Output = Result<Object, ObjectError>> + Send {
-        future::ready(Err(down(key)))
-    }
-
-    fn head(&self, key: &str) -> impl Future<Output = Result<Head, ObjectError>> + Send {
-        future::ready(Err(down(key)))
-    }
-
-    fn list(&self, prefix: &str) -> impl Future<Output = Result<Vec<String>, ObjectError>> + Send {
-        future::ready(Err(down(prefix)))
-    }
-
-    fn put(
-        &self,
-        key: &str,
-        _bytes: &[u8],
-        _condition: &Condition,
-    ) -> impl Future<Output = Result<String, ObjectError>> + Send {
-        future::ready(Err(down(key)))
-    }
+/// The key of each object `memory` holds, sorted.
+async fn keys(memory: &MemoryBucket) -> Vec<String> {
+    let entries = memory.list(Path::new("/"), Depth::All).await.unwrap();
+    entries
+        .iter()
+        .filter(|entry| entry.is_file)
+        .map(|entry| entry.path.to_str().unwrap()[1..].to_owned())
+        .collect()
 }
 
-impl EnsureBucket for DownBucket {
-    fn ensure_bucket(
-        &self,
-        _kms_key_arn: Option<&str>,
-    ) -> impl Future<Output = Result<(), StoreError>> + Send {
-        future::ready(Err(StoreError::Backend("no answer".to_owned())))
-    }
+/// The bytes and the token of the object at `key` in `memory`.
+async fn object(memory: &MemoryBucket, key: &str) -> (Vec<u8>, RevisionToken) {
+    memory.get(&PathBuf::from(format!("/{key}"))).await.unwrap()
 }
 
-/// A `MemoryBucket` that records each `get` and `head` it answers, with its
-/// key, and each `ensure_bucket`, with its KMS key.
-#[derive(Clone, Default)]
-struct Watched {
-    bucket: MemoryBucket,
-    reads: Arc<Mutex<Vec<String>>>,
-}
-
-impl Watched {
-    fn reads(&self) -> Vec<String> {
-        self.reads.lock().unwrap().clone()
-    }
-}
-
-impl Bucket for Watched {
-    fn delete(
-        &self,
-        key: &str,
-        condition: &Condition,
-    ) -> impl Future<Output = Result<(), ObjectError>> + Send {
-        self.bucket.delete(key, condition)
-    }
-
-    fn get(&self, key: &str) -> impl Future<Output = Result<Object, ObjectError>> + Send {
-        self.reads.lock().unwrap().push(format!("get {key}"));
-        self.bucket.get(key)
-    }
-
-    fn head(&self, key: &str) -> impl Future<Output = Result<Head, ObjectError>> + Send {
-        self.reads.lock().unwrap().push(format!("head {key}"));
-        self.bucket.head(key)
-    }
-
-    fn list(&self, prefix: &str) -> impl Future<Output = Result<Vec<String>, ObjectError>> + Send {
-        self.bucket.list(prefix)
-    }
-
-    fn put(
-        &self,
-        key: &str,
-        bytes: &[u8],
-        condition: &Condition,
-    ) -> impl Future<Output = Result<String, ObjectError>> + Send {
-        self.bucket.put(key, bytes, condition)
-    }
-}
-
-impl EnsureBucket for Watched {
-    fn ensure_bucket(
-        &self,
-        kms_key_arn: Option<&str>,
-    ) -> impl Future<Output = Result<(), StoreError>> + Send {
-        self.reads
-            .lock()
-            .unwrap()
-            .push(format!("ensure {kms_key_arn:?}"));
-        self.bucket.ensure_bucket(kms_key_arn)
-    }
-}
-
-/// An `Other` failure naming `key`.
-fn down(key: &str) -> ObjectError {
-    ObjectError::from(io::Error::other(format!("no answer for `{key}`")))
+/// Puts `bytes` at `key` in `memory`, with no condition, its folder made first.
+async fn put_object(memory: &MemoryBucket, key: &str, bytes: &[u8]) -> RevisionToken {
+    let place = PathBuf::from(format!("/{key}"));
+    memory.create_folder(place.parent().unwrap()).await.unwrap();
+    memory.put(&place, bytes, &Condition::None).await.unwrap()
 }
 
 /// A store over a bucket `memory` shares, its keys under `vault`.
@@ -215,10 +126,10 @@ async fn a_file_is_the_object_at_its_path_under_the_prefix_or_at_its_path_with_n
         .write(&task, b"# Root\n", &Precondition::None)
         .await
         .unwrap();
-    let keys = memory.list("").await.unwrap();
+    let keys = keys(&memory).await;
     assert_eq!(keys, ["notes/task.md", "vault/notes/task.md"]);
-    let object = memory.get("vault/notes/task.md").await.unwrap();
-    assert_eq!(object.bytes, b"# Task\n");
+    let (bytes, _token) = object(&memory, "vault/notes/task.md").await;
+    assert_eq!(bytes, b"# Task\n");
 }
 
 #[tokio::test]
@@ -237,7 +148,7 @@ async fn within_a_folder_keys_land_under_the_prefix_and_the_folder_and_list_with
         .write(&picture, PNG, &Precondition::Absent)
         .await
         .unwrap();
-    let keys = memory.list("").await.unwrap();
+    let keys = keys(&memory).await;
     assert_eq!(
         keys,
         ["notes/docs/files/9f86d0", "vault/notes/docs/files/9f86d0"]
@@ -255,14 +166,10 @@ async fn a_read_gives_the_bytes_and_the_tag_unchanged_and_no_object_is_not_found
     let memory = MemoryBucket::default();
     let store = in_vault(&memory, &system);
     let task = path("notes/task.md");
-    let tag = memory
-        .put("vault/notes/task.md", b"# Task\n", &Condition::None)
-        .await
-        .unwrap();
-    assert!(tag.starts_with('"') && tag.ends_with('"'), "{tag}");
+    let token = put_object(&memory, "vault/notes/task.md", b"# Task\n").await;
     let read = store.read(&task).await.unwrap();
     assert_eq!(read.bytes, b"# Task\n");
-    assert_eq!(read.revision, Revision(tag));
+    assert_eq!(read.revision, Revision(token.as_str().to_owned()));
     let other = path("notes/other.md");
     assert_eq!(store.read(&other).await, Err(StoreError::NotFound(other)));
 }
@@ -282,9 +189,9 @@ async fn a_write_with_no_precondition_replaces_the_object_and_gives_its_tag() {
         .await
         .unwrap();
     assert_ne!(first, second);
-    let object = memory.get("vault/notes/task.md").await.unwrap();
-    assert_eq!(object.bytes, b"# Done\n");
-    assert_eq!(Revision(object.etag), second);
+    let (bytes, token) = object(&memory, "vault/notes/task.md").await;
+    assert_eq!(bytes, b"# Done\n");
+    assert_eq!(Revision(token.as_str().to_owned()), second);
 }
 
 #[tokio::test]
@@ -335,13 +242,13 @@ async fn a_delete_removes_the_object_and_one_where_no_file_is_succeeds_without_a
         .delete(&task, &Precondition::Matches(revision.clone()))
         .await
         .unwrap();
-    assert_eq!(memory.list("").await.unwrap(), Vec::<String>::new());
+    assert_eq!(keys(&memory).await, Vec::<String>::new());
     store
         .write(&task, b"# Task\n", &Precondition::None)
         .await
         .unwrap();
     store.delete(&task, &Precondition::None).await.unwrap();
-    assert_eq!(memory.list("").await.unwrap(), Vec::<String>::new());
+    assert_eq!(keys(&memory).await, Vec::<String>::new());
 
     store.delete(&task, &Precondition::None).await.unwrap();
     store.delete(&task, &Precondition::Absent).await.unwrap();
@@ -364,10 +271,14 @@ async fn a_listing_takes_the_prefix_off_leaves_folders_out_and_sorts_by_bytes() 
         "vaultx/f.md",
     ];
     for key in keys {
-        memory
-            .put(key, b"# File\n", &Condition::None)
-            .await
-            .unwrap();
+        if let Some(folder) = key.strip_suffix('/') {
+            memory
+                .create_folder(&PathBuf::from(format!("/{folder}")))
+                .await
+                .unwrap();
+        } else {
+            put_object(&memory, key, b"# File\n").await;
+        }
     }
     let store = in_vault(&memory, &system);
     let all = store.list(None).await.unwrap();
@@ -394,12 +305,9 @@ async fn a_listing_takes_the_prefix_off_leaves_folders_out_and_sorts_by_bytes() 
 async fn a_listed_key_that_is_not_a_store_path_is_an_invalid_path_naming_it() {
     let system = MemorySystem::new();
     let memory = MemoryBucket::default();
-    memory
-        .put("vault/a//b", b"# File\n", &Condition::None)
-        .await
-        .unwrap();
+    put_object(&memory, "vault/a\\b", b"# File\n").await;
     let listed = in_vault(&memory, &system).list(None).await;
-    assert_eq!(listed, Err(StoreError::InvalidPath("a//b".to_owned())));
+    assert_eq!(listed, Err(StoreError::InvalidPath("a\\b".to_owned())));
 }
 
 #[tokio::test]
@@ -417,10 +325,10 @@ async fn a_key_past_1024_bytes_fails_the_write_with_the_path_before_any_request(
         .write(&past, b"# File\n", &Precondition::None)
         .await;
     assert_eq!(written, refused);
-    let down = ObjectStore::new(DownBucket, Some(path("vault")), &system);
+    let down = ObjectStore::new(TestBucket::down(), Some(path("vault")), &system);
     let unsent = down.write(&past, b"# File\n", &Precondition::Absent).await;
     assert_eq!(unsent, refused);
-    let keys = memory.list("").await.unwrap();
+    let keys = keys(&memory).await;
     assert_eq!(keys, [format!("vault/{longest}")]);
 
     let root = ObjectStore::new(memory.clone(), None, &system);
@@ -432,9 +340,9 @@ async fn a_key_past_1024_bytes_fails_the_write_with_the_path_before_any_request(
 #[tokio::test]
 async fn each_failure_of_the_bucket_is_a_backend_error_naming_the_path() {
     let system = MemorySystem::new();
-    let store = ObjectStore::new(DownBucket, Some(path("vault")), &system);
+    let store = ObjectStore::new(TestBucket::down(), Some(path("vault")), &system);
     let task = path("notes/task.md");
-    let failed = "notes/task.md: no answer for `vault/notes/task.md`";
+    let failed = "notes/task.md: no answer for `/vault/notes/task.md`";
     let backend = StoreError::Backend(failed.to_owned());
     assert_eq!(store.read(&task).await, Err(backend.clone()));
     for precondition in [Precondition::None, Precondition::Absent] {
@@ -444,17 +352,19 @@ async fn each_failure_of_the_bucket_is_a_backend_error_naming_the_path() {
         assert_eq!(deleted, Err(backend.clone()));
     }
     let notes = store.list(Some(&path("notes"))).await;
-    let in_notes = "notes: no answer for `vault/notes/`".to_owned();
+    let in_notes = "notes: no answer for `/vault/notes`".to_owned();
     assert_eq!(notes, Err(StoreError::Backend(in_notes)));
     let all = store.list(None).await;
     assert_eq!(
         all,
-        Err(StoreError::Backend("no answer for `vault/`".to_owned()))
+        Err(StoreError::Backend("no answer for `/vault`".to_owned()))
     );
-    let root = ObjectStore::new(DownBucket, None, &system).list(None).await;
+    let root = ObjectStore::new(TestBucket::down(), None, &system)
+        .list(None)
+        .await;
     assert_eq!(
         root,
-        Err(StoreError::Backend("no answer for ``".to_owned()))
+        Err(StoreError::Backend("no answer for `/`".to_owned()))
     );
 }
 
@@ -479,18 +389,14 @@ async fn a_put_keeps_each_embedded_file_as_an_object_beside_the_document_that_a_
     )
     .await
     .unwrap();
-    let keys = memory.list("").await.unwrap();
+    let keys = keys(&memory).await;
     assert_eq!(
         keys,
         ["vault/notes/media/logo.png", "vault/notes/report.md"]
     );
-    let text = memory.get("vault/notes/report.md").await.unwrap().bytes;
+    let (text, _token) = object(&memory, "vault/notes/report.md").await;
     assert_eq!(text, REPORT.as_bytes());
-    let logo = memory
-        .get("vault/notes/media/logo.png")
-        .await
-        .unwrap()
-        .bytes;
+    let (logo, _logo_revision) = object(&memory, "vault/notes/media/logo.png").await;
     assert_eq!(logo, PNG);
     assert_eq!(get(&store, &report, Missing::Refuse).await.unwrap(), bundle);
 }
@@ -498,7 +404,7 @@ async fn a_put_keeps_each_embedded_file_as_an_object_beside_the_document_that_a_
 #[tokio::test]
 async fn a_save_under_a_precondition_reads_the_documents_tag_and_not_its_bytes() {
     let system = MemorySystem::new();
-    let watched = Watched::default();
+    let watched = TestBucket::default();
     let store = ObjectStore::new(watched.clone(), Some(path("vault")), &system);
     let report = path("notes/report.md");
     let files = BTreeMap::new();
@@ -516,11 +422,11 @@ async fn a_save_under_a_precondition_reads_the_documents_tag_and_not_its_bytes()
         .await
         .unwrap();
     let of_report: Vec<String> = watched
-        .reads()
+        .seen()
         .into_iter()
         .filter(|read| read.ends_with("/report.md"))
         .collect();
-    assert_eq!(of_report, ["head vault/notes/report.md"; 3]);
+    assert_eq!(of_report, ["head /vault/notes/report.md"; 3]);
 }
 
 #[test]
@@ -619,13 +525,13 @@ async fn a_lock_is_an_object_holding_the_guid_and_the_seconds_it_was_taken() {
     let store = in_vault(&memory, &system);
     let lock = lock_of(&path("notes/report.md")).unwrap();
     assert!(store.create(&lock, "a-guid").await.unwrap());
-    let object = memory.get("vault/notes/report.md.arky-lock").await.unwrap();
-    assert_eq!(object.bytes, b"a-guid 1792700000");
+    let (bytes, tag) = object(&memory, "vault/notes/report.md.arky-lock").await;
+    assert_eq!(bytes, b"a-guid 1792700000");
     assert!(!store.create(&lock, "another").await.unwrap());
     let found = store.find(&lock).await.unwrap().unwrap();
     assert_eq!(found.holder, "a-guid");
     assert_eq!(found.taken, taken);
-    assert_eq!(found.tag, object.etag.into_bytes());
+    assert_eq!(found.tag, tag.as_str().as_bytes());
 }
 
 #[tokio::test]
@@ -636,10 +542,7 @@ async fn a_lock_whose_bytes_do_not_read_counts_as_expired_and_the_save_removes_i
     let memory = MemoryBucket::default();
     let store = in_vault(&memory, &system);
     for bytes in [b"garbage".as_slice(), b"a-guid soon", b"\xff 12"] {
-        memory
-            .put("vault/notes/report.md.arky-lock", bytes, &Condition::None)
-            .await
-            .unwrap();
+        put_object(&memory, "vault/notes/report.md.arky-lock", bytes).await;
         let lock = lock_of(&path("notes/report.md")).unwrap();
         let found = store.find(&lock).await.unwrap().unwrap();
         assert_eq!(
@@ -656,7 +559,7 @@ async fn a_lock_whose_bytes_do_not_read_counts_as_expired_and_the_save_removes_i
             )
             .await
             .unwrap();
-        let keys = memory.list("").await.unwrap();
+        let keys = keys(&memory).await;
         assert_eq!(
             keys,
             ["vault/notes/media/logo.png", "vault/notes/report.md"]
@@ -681,12 +584,12 @@ async fn a_save_whose_lock_key_is_past_1024_bytes_fails_with_the_documents_path_
         .write_with_embedded(&past, "# File\n", &files, &Precondition::None)
         .await;
     assert_eq!(written, refused);
-    let down = ObjectStore::new(DownBucket, Some(path("vault")), &system);
+    let down = ObjectStore::new(TestBucket::down(), Some(path("vault")), &system);
     let unsent = down
         .write_with_embedded(&past, "# File\n", &files, &Precondition::None)
         .await;
     assert_eq!(unsent, refused);
-    assert_eq!(memory.list("").await.unwrap(), [format!("vault/{longest}")]);
+    assert_eq!(keys(&memory).await, [format!("vault/{longest}")]);
 }
 
 #[tokio::test]
@@ -721,14 +624,14 @@ async fn a_document_goes_into_each_boxed_store_and_comes_back() {
 #[tokio::test]
 async fn ensure_container_asks_the_bucket_for_the_key_the_store_is_encrypted_with() {
     let system = MemorySystem::new();
-    let watched = Watched::default();
+    let watched = TestBucket::default();
     let arn = "arn:aws:kms:eu-west-1:111122223333:key/notes";
     let plain = ObjectStore::new(watched.clone(), None, &system);
     plain.ensure_container().await.unwrap();
     let encrypted = ObjectStore::new(watched.clone(), None, &system).encrypted_with(arn.to_owned());
     encrypted.ensure_container().await.unwrap();
     assert_eq!(
-        watched.reads(),
+        watched.seen(),
         ["ensure None", &format!("ensure Some({arn:?})")]
     );
 }
@@ -748,17 +651,10 @@ async fn remove_expired_locks_through_a_boxed_store_removes_an_expired_lock_obje
     let taken = SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_700_000);
     let system = MemorySystem::new().with_now(taken).unwrap();
     let memory = MemoryBucket::default();
-    memory
-        .put(
-            "vault/a.md.arky-lock",
-            b"a-guid 1792700000",
-            &Condition::None,
-        )
-        .await
-        .unwrap();
+    put_object(&memory, "vault/a.md.arky-lock", b"a-guid 1792700000").await;
     system.advance(Duration::from_secs(6)).unwrap();
     let store: Box<dyn crate::DynStore + '_> = Box::new(in_vault(&memory, &system));
     let removed = store.remove_expired_locks(None).await;
     assert_eq!(removed, Ok(vec![lock_of(&path("a.md")).unwrap()]));
-    assert_eq!(memory.list("").await.unwrap(), Vec::<String>::new());
+    assert_eq!(keys(&memory).await, Vec::<String>::new());
 }

@@ -287,7 +287,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Missing::Refuse,
     )
     .await?;
-    assert_eq!(bucket.list("").await?, ["blog/posts/hello.md"]);
+    let (bytes, _revision) = bucket.get("/blog/posts/hello.md".as_ref()).await?;
+    assert_eq!(bytes, b"# Hello\n");
 
     let again = store.write(&path, b"# Hello again\n", &Precondition::Absent).await;
     assert_eq!(again, Err(StoreError::Conflict(path.clone())));

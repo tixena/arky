@@ -4,6 +4,7 @@
 use alloc::collections::BTreeMap;
 use std::env;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use arky::bundle::{BundledDocument, Missing};
 use arky::forms::{Form, encode};
@@ -57,7 +58,7 @@ const PNG: &[u8] = b"\x89PNG\r\n\x1a\n not a real picture";
 const REPORT: &str = "# Report\n\n![Logo](media/logo.png)\n";
 
 /// The machine the stores of these tests run on.
-static MACHINE: RealSystem = RealSystem::new();
+static MACHINE: LazyLock<RealSystem> = LazyLock::new(RealSystem::new);
 
 /// The configuration `just test-stores` passes, its keys under `prefix`.
 fn config(prefix: &str) -> ObjectConfig {
@@ -96,7 +97,7 @@ async fn copy(
 
 /// A store over the server, its keys read from the environment.
 fn server(prefix: &str) -> ObjectStore<'static, MinioBucket> {
-    ObjectStore::open(&MACHINE, config(prefix)).unwrap()
+    ObjectStore::open(&*MACHINE, config(prefix)).unwrap()
 }
 
 #[tokio::test]
@@ -144,7 +145,7 @@ async fn ensure_creates_a_missing_bucket_and_leaves_it_alone_the_second_time() {
         "arky-ensure".to_owned(),
         None,
     );
-    let store = ObjectStore::open(&MACHINE, config).unwrap();
+    let store = ObjectStore::open(&*MACHINE, config).unwrap();
     assert!(matches!(
         store.list(None).await,
         Err(StoreError::Backend(_))
@@ -167,7 +168,7 @@ async fn ensure_container_through_a_boxed_store_creates_a_missing_bucket_a_write
         "arky-ensure-container".to_owned(),
         None,
     );
-    let store: Box<dyn crate::DynStore> = Box::new(ObjectStore::open(&MACHINE, config).unwrap());
+    let store: Box<dyn crate::DynStore> = Box::new(ObjectStore::open(&*MACHINE, config).unwrap());
     assert!(matches!(
         store.list(None).await,
         Err(StoreError::Backend(_))

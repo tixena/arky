@@ -8,17 +8,11 @@
 mod server;
 
 use alloc::collections::BTreeMap;
-#[cfg(feature = "s3")]
-use alloc::sync::Arc;
 use core::future;
 use core::time::Duration;
 use std::path::{Path, PathBuf};
-#[cfg(feature = "s3")]
-use std::sync::Mutex;
 
 use os_shim::System as _;
-#[cfg(feature = "s3")]
-use os_shim::bucket::{Bucket, Condition, Head, MemoryBucket, Object, ObjectError};
 use os_shim::mock::MemorySystem;
 
 #[cfg(any(feature = "minio", feature = "s3"))]
@@ -39,7 +33,9 @@ use crate::config::{Configuration, SavedStores};
 use crate::file::FileStore;
 use crate::lock::LockSettings;
 #[cfg(feature = "s3")]
-use crate::object::{EnsureBucket, ObjectStore};
+use crate::object::ObjectStore;
+#[cfg(feature = "s3")]
+use crate::tests::TestBucket;
 use crate::{BoxFuture, Capabilities, DynStore, Precondition, StoreError, StorePath};
 
 /// The folder a relative path is relative to in these tests.
@@ -169,60 +165,6 @@ impl Backend for OverFile {
     }
 }
 
-/// A `MemoryBucket` that records the KMS key of each `ensure_bucket`.
-#[cfg(feature = "s3")]
-#[derive(Clone, Default)]
-struct Recorded {
-    bucket: MemoryBucket,
-    kms: Arc<Mutex<Vec<Option<String>>>>,
-}
-
-#[cfg(feature = "s3")]
-impl Bucket for Recorded {
-    fn delete(
-        &self,
-        key: &str,
-        condition: &Condition,
-    ) -> impl Future<Output = Result<(), ObjectError>> + Send {
-        self.bucket.delete(key, condition)
-    }
-
-    fn get(&self, key: &str) -> impl Future<Output = Result<Object, ObjectError>> + Send {
-        self.bucket.get(key)
-    }
-
-    fn head(&self, key: &str) -> impl Future<Output = Result<Head, ObjectError>> + Send {
-        self.bucket.head(key)
-    }
-
-    fn list(&self, prefix: &str) -> impl Future<Output = Result<Vec<String>, ObjectError>> + Send {
-        self.bucket.list(prefix)
-    }
-
-    fn put(
-        &self,
-        key: &str,
-        bytes: &[u8],
-        condition: &Condition,
-    ) -> impl Future<Output = Result<String, ObjectError>> + Send {
-        self.bucket.put(key, bytes, condition)
-    }
-}
-
-#[cfg(feature = "s3")]
-impl EnsureBucket for Recorded {
-    fn ensure_bucket(
-        &self,
-        kms_key_arn: Option<&str>,
-    ) -> impl Future<Output = Result<(), StoreError>> + Send {
-        self.kms
-            .lock()
-            .unwrap()
-            .push(kms_key_arn.map(ToOwned::to_owned));
-        future::ready(Ok(()))
-    }
-}
-
 /// The file store at `/notes` over `system`, seen through `within(…,
 /// drafts)`.
 fn drafts(system: &MemorySystem) -> Box<dyn DynStore + '_> {
@@ -233,8 +175,8 @@ fn drafts(system: &MemorySystem) -> Box<dyn DynStore + '_> {
 /// `text` parsed by the `MongoDB` backend, its `files` resolved through the
 /// default backends and the stores `system` saves.
 #[cfg(feature = "mongodb")]
-fn mongo_parsed(system: &MemorySystem, text: &str) -> Result<Mongo, StoreError> {
-    let backends = saved_backends(system, "/home/me");
+async fn mongo_parsed(system: &MemorySystem, text: &str) -> Result<Mongo, StoreError> {
+    let backends = saved_backends(system, "/home/me").await;
     let context = Context {
         backends: &backends,
         base: Path::new("/home/me"),
@@ -262,7 +204,10 @@ async fn opens_in_a_path(text: &str, container: &str, inside: &str, file: &str) 
         .write(&at, b"# A\n", &Precondition::Absent)
         .await
         .unwrap();
-    assert_eq!(system.read_to_string(Path::new(file)).unwrap(), "# A\n");
+    assert_eq!(
+        system.read_to_string(Path::new(file)).await.unwrap(),
+        "# A\n"
+    );
 }
 
 fn path(text: &str) -> StorePath {
@@ -271,8 +216,10 @@ fn path(text: &str) -> StorePath {
 
 /// The default backends and `SavedBackend` over the stores `system` saves,
 /// as `Configuration::discover` finds them from `folder`.
-fn saved_backends(system: &MemorySystem, folder: &str) -> Backends {
-    let stores = SavedStores::discover(system, Path::new(folder)).unwrap();
+async fn saved_backends(system: &MemorySystem, folder: &str) -> Backends {
+    let stores = SavedStores::discover(system, Path::new(folder))
+        .await
+        .unwrap();
     Backends::default().with(SavedBackend::new(stores))
 }
 
@@ -442,7 +389,7 @@ async fn a_file_string_or_a_plain_path_names_its_root_against_the_base_folder() 
             .write(&path("a.md"), b"# A\n", &Precondition::Absent)
             .await
             .unwrap();
-        let written = system.read_to_string(&Path::new(root).join("a.md"));
+        let written = system.read_to_string(&Path::new(root).join("a.md")).await;
         assert_eq!(written.unwrap(), "# A\n", "{text}");
     }
 }
@@ -504,7 +451,7 @@ async fn a_file_string_in_a_path_names_the_root_folder_and_the_path_inside_it() 
             .await
             .unwrap();
         assert_eq!(
-            system.read_to_string(Path::new(file)).unwrap(),
+            system.read_to_string(Path::new(file)).await.unwrap(),
             "# A\n",
             "{text}"
         );
@@ -674,6 +621,7 @@ async fn the_default_backends_leave_out_the_saved_stores() {
     assert_eq!(opened.err(), Some(refused));
     assert!(
         saved_backends(&system, "/home/me")
+            .await
             .answering("arky")
             .is_some()
     );
@@ -695,7 +643,10 @@ async fn a_backend_of_a_program_s_own_opens_its_scheme() {
         .await
         .unwrap();
     assert_eq!(
-        system.read_to_string(Path::new("/memory/x/a.md")).unwrap(),
+        system
+            .read_to_string(Path::new("/memory/x/a.md"))
+            .await
+            .unwrap(),
         "# A\n"
     );
 
@@ -712,6 +663,7 @@ async fn a_backend_of_a_program_s_own_opens_its_scheme() {
     assert_eq!(
         system
             .read_to_string(Path::new("/memory/x/notes/b.md"))
+            .await
             .unwrap(),
         "# B\n"
     );
@@ -741,6 +693,7 @@ async fn a_backend_added_for_a_built_in_scheme_answers_it_from_then_on() {
     assert_eq!(
         system
             .read_to_string(Path::new("/overridden/a.md"))
+            .await
             .unwrap(),
         "# A\n"
     );
@@ -757,6 +710,7 @@ async fn within_a_folder_read_write_delete_and_read_embedded_take_the_folder_in_
     assert_eq!(
         system
             .read_to_string(Path::new("/notes/drafts/a.md"))
+            .await
             .unwrap(),
         "# A\n"
     );
@@ -778,7 +732,12 @@ async fn within_a_folder_read_write_delete_and_read_embedded_take_the_folder_in_
         .delete(&path("a.md"), &Precondition::Matches(written))
         .await
         .unwrap();
-    assert!(!system.exists(Path::new("/notes/drafts/a.md")).unwrap());
+    assert!(
+        !system
+            .exists(Path::new("/notes/drafts/a.md"))
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test]
@@ -793,12 +752,14 @@ async fn within_a_folder_a_save_puts_the_folder_in_front_of_the_document_and_eac
     assert_eq!(
         system
             .read_to_string(Path::new("/notes/drafts/posts/a.md"))
+            .await
             .unwrap(),
         "# A\n"
     );
     assert!(
         system
             .exists(Path::new("/notes/drafts/posts/media/logo.png"))
+            .await
             .unwrap()
     );
 }
@@ -850,6 +811,7 @@ async fn within_a_folder_expired_locks_are_removed_under_the_folder_and_given_ba
     assert!(
         system
             .exists(Path::new("/notes/outside.md.arky-lock"))
+            .await
             .unwrap()
     );
 }
@@ -873,7 +835,7 @@ async fn within_a_folder_capabilities_containers_and_deletions_pass_through() {
 async fn a_saved_name_opens_its_store_against_the_folder_of_its_arky_toml_from_any_folder() {
     for current in ["/home/me", "/home/me/work/deep"] {
         let system = saving(MemorySystem::new(), SAVED);
-        let backends = saved_backends(&system, current);
+        let backends = saved_backends(&system, current).await;
         let store = backends
             .open(
                 "arky://notes",
@@ -890,6 +852,7 @@ async fn a_saved_name_opens_its_store_against_the_folder_of_its_arky_toml_from_a
         assert_eq!(
             system
                 .read_to_string(Path::new("/home/me/notes/a.md"))
+                .await
                 .unwrap(),
             "# A\n",
             "{current}"
@@ -905,6 +868,7 @@ async fn a_saved_name_from_a_file_named_with_dot_dot_opens_against_the_folder_of
         .with_current_dir("/home/me/work/vault")
         .unwrap();
     let stores = Configuration::read(&system, Path::new("../arky.toml"))
+        .await
         .unwrap()
         .stores;
     let backends = Backends::default().with(SavedBackend::new(stores));
@@ -924,6 +888,7 @@ async fn a_saved_name_from_a_file_named_with_dot_dot_opens_against_the_folder_of
     assert_eq!(
         system
             .read_to_string(Path::new("/home/me/work/notes/a.md"))
+            .await
             .unwrap(),
         "# A\n"
     );
@@ -932,7 +897,7 @@ async fn a_saved_name_from_a_file_named_with_dot_dot_opens_against_the_folder_of
 #[tokio::test]
 async fn a_saved_name_in_a_path_is_its_store_and_the_path_inside_it() {
     let system = saving(MemorySystem::new(), SAVED);
-    let backends = saved_backends(&system, "/home/me/work");
+    let backends = saved_backends(&system, "/home/me/work").await;
     let (store, at) = backends
         .open_path(
             "arky://notes/ideas/today.md",
@@ -951,6 +916,7 @@ async fn a_saved_name_in_a_path_is_its_store_and_the_path_inside_it() {
     assert_eq!(
         system
             .read_to_string(Path::new("/home/me/notes/ideas/today.md"))
+            .await
             .unwrap(),
         "# Today\n"
     );
@@ -959,7 +925,7 @@ async fn a_saved_name_in_a_path_is_its_store_and_the_path_inside_it() {
 #[tokio::test]
 async fn a_saved_name_with_a_folder_opened_as_a_store_is_that_folder_inside_it() {
     let system = saving(MemorySystem::new(), SAVED);
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let store = backends
         .open(
             "arky://notes/ideas/",
@@ -976,6 +942,7 @@ async fn a_saved_name_with_a_folder_opened_as_a_store_is_that_folder_inside_it()
     assert_eq!(
         system
             .read_to_string(Path::new("/home/me/notes/ideas/a.md"))
+            .await
             .unwrap(),
         "# A\n"
     );
@@ -1003,7 +970,7 @@ fn a_saved_name_in_a_path_splits_after_the_name_and_keeps_its_query_on_it() {
 #[tokio::test]
 async fn an_unknown_saved_name_is_not_configured_naming_it() {
     let system = saving(MemorySystem::new(), SAVED);
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let base = Path::new("/home/me");
     let lock = LockSettings::default();
     let opened = backends.open("arky://nope", base, lock, &system).await;
@@ -1022,7 +989,7 @@ async fn an_unknown_saved_name_is_not_configured_naming_it() {
 #[tokio::test]
 async fn a_saved_store_string_with_no_name_an_option_or_a_fragment_is_an_invalid_store() {
     let system = saving(MemorySystem::new(), SAVED);
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let base = Path::new("/home/me");
     let lock = LockSettings::default();
     let refused = [
@@ -1053,7 +1020,7 @@ async fn a_saved_store_string_with_no_name_an_option_or_a_fragment_is_an_invalid
 #[tokio::test]
 async fn an_error_in_a_saved_store_string_names_the_name_and_the_string_with_its_file() {
     let system = saving(MemorySystem::new(), SAVED);
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let opened = backends
         .open(
             "arky://wrong",
@@ -1073,7 +1040,7 @@ async fn a_saved_store_string_s_variables_are_replaced_when_it_opens() {
     let system = saving(MemorySystem::new(), SAVED)
         .with_env("NOTES_DIR", "my notes")
         .unwrap();
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let store = backends
         .open(
             "arky://secret",
@@ -1090,6 +1057,7 @@ async fn a_saved_store_string_s_variables_are_replaced_when_it_opens() {
     assert_eq!(
         system
             .read_to_string(Path::new("/home/me/my notes/a.md"))
+            .await
             .unwrap(),
         "# A\n"
     );
@@ -1098,7 +1066,7 @@ async fn a_saved_store_string_s_variables_are_replaced_when_it_opens() {
 #[tokio::test]
 async fn a_variable_a_saved_store_string_reads_not_set_is_not_configured_naming_both() {
     let system = saving(MemorySystem::new(), SAVED);
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let opened = backends
         .open(
             "arky://secret",
@@ -1117,7 +1085,7 @@ async fn a_variable_a_saved_store_string_reads_not_set_is_not_configured_naming_
 #[tokio::test]
 async fn no_error_of_a_saved_store_shows_a_variable_s_value() {
     let system = saving(secrets(), SAVED).with_env("WHICH", "nope").unwrap();
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let base = Path::new("/home/me");
     let lock = LockSettings::default();
     let leaky = backends
@@ -1137,10 +1105,10 @@ async fn no_error_of_a_saved_store_shows_a_variable_s_value() {
     assert_eq!(unknown.err(), Some(refused));
 }
 
-#[test]
-fn resolve_gives_a_saved_name_s_store_string_and_folder_and_any_other_text_unchanged() {
+#[tokio::test]
+async fn resolve_gives_a_saved_name_s_store_string_and_folder_and_any_other_text_unchanged() {
     let system = saving(MemorySystem::new(), SAVED);
-    let backends = saved_backends(&system, "/home/me/work");
+    let backends = saved_backends(&system, "/home/me/work").await;
     let base = Path::new("/srv");
     assert_eq!(
         backends.resolve("arky://notes", base).unwrap(),
@@ -1258,7 +1226,7 @@ url = "minio+http://k:${S}@127.0.0.1:9000/b"
 url = "minio+https://minio.example.com/work/notes?regoin=x"
 "#;
     let system = saving(MemorySystem::new(), saved);
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let base = Path::new("/home/me");
     let lock = LockSettings::default();
     let option = backends.open("arky://work", base, lock, &system).await;
@@ -1416,21 +1384,21 @@ async fn the_kms_key_of_an_s3_string_reaches_the_bucket_it_creates() {
     let kms = "arn:aws:kms:eu-west-1:111122223333:key/abcd";
     let parsed = s3::parse(&format!("s3://acme?region=eu-west-1&kms={kms}")).unwrap();
     let system = MemorySystem::new();
-    let bucket = Recorded::default();
+    let bucket = TestBucket::default();
     let store = ObjectStore::new(bucket.clone(), None, &system);
     let finished = s3::finished(store, parsed.kms, LockSettings::default());
     Store::ensure_container(&finished).await.unwrap();
-    assert_eq!(*bucket.kms.lock().unwrap(), [Some(kms.to_owned())]);
+    assert_eq!(bucket.seen(), [format!("ensure Some({kms:?})")]);
 }
 
 #[cfg(feature = "mongodb")]
-#[test]
-fn a_mongodb_string_hands_the_driver_its_text_without_the_collection_and_files_and_resolves_a_saved_files_name()
+#[tokio::test]
+async fn a_mongodb_string_hands_the_driver_its_text_without_the_collection_and_files_and_resolves_a_saved_files_name()
  {
     let system = saving(secrets(), SAVED_MEDIA);
     let text =
         "mongodb+srv://u:p@cluster0.example.net/notes/docs?retryWrites=true&files=arky://media";
-    let parsed = mongo_parsed(&system, text).unwrap();
+    let parsed = mongo_parsed(&system, text).await.unwrap();
     assert_eq!(
         parsed.driver,
         "mongodb+srv://u:p@cluster0.example.net/notes?retryWrites=true"
@@ -1452,12 +1420,12 @@ fn a_mongodb_string_hands_the_driver_its_text_without_the_collection_and_files_a
 }
 
 #[cfg(feature = "mongodb")]
-#[test]
-fn a_mongodb_string_keeps_its_host_list_and_reads_a_percent_encoded_files_string() {
+#[tokio::test]
+async fn a_mongodb_string_keeps_its_host_list_and_reads_a_percent_encoded_files_string() {
     let system = MemorySystem::new();
     let files = "files=minio%2Bhttp%3A%2F%2Fk%3As%40127.0.0.1%3A9000%2Fb%2Fvault";
     let text = format!("mongodb://u:p@h1:27017,h2:27018/notes/docs?{files}&replicaSet=rs0");
-    let parsed = mongo_parsed(&system, &text).unwrap();
+    let parsed = mongo_parsed(&system, &text).await.unwrap();
     assert_eq!(
         parsed.driver,
         "mongodb://u:p@h1:27017,h2:27018/notes?replicaSet=rs0"
@@ -1473,13 +1441,15 @@ fn a_mongodb_string_keeps_its_host_list_and_reads_a_percent_encoded_files_string
         region: "us-east-1".to_owned(),
     };
     assert_eq!(parsed.files, bucket);
-    let alone = mongo_parsed(&system, &format!("mongodb://h/notes/docs?{files}")).unwrap();
+    let alone = mongo_parsed(&system, &format!("mongodb://h/notes/docs?{files}"))
+        .await
+        .unwrap();
     assert_eq!(alone.driver, "mongodb://h/notes");
 }
 
 #[cfg(feature = "mongodb")]
-#[test]
-fn a_variable_percent_encoded_inside_an_inline_files_string_is_replaced_in_that_string() {
+#[tokio::test]
+async fn a_variable_percent_encoded_inside_an_inline_files_string_is_replaced_in_that_string() {
     let system = MemorySystem::new().with_env("SECRET", PASSWORD).unwrap();
     let text = "mongodb://127.0.0.1:27017/notes/docs?files=minio%2Bhttp%3A%2F%2Fk%3A%24%7BSECRET%7D%40127.0.0.1%3A9000%2Fb";
     let outer = expand(text, &system, true).unwrap();
@@ -1494,7 +1464,10 @@ fn a_variable_percent_encoded_inside_an_inline_files_string_is_replaced_in_that_
         prefix: None,
         region: "us-east-1".to_owned(),
     };
-    assert_eq!(mongo_parsed(&system, outer.text()).unwrap().files, files);
+    assert_eq!(
+        mongo_parsed(&system, outer.text()).await.unwrap().files,
+        files
+    );
 }
 
 #[cfg(feature = "mongodb")]
@@ -1523,7 +1496,7 @@ async fn a_raw_variable_inside_an_inline_files_string_is_an_invalid_store_naming
 #[tokio::test]
 async fn a_variable_in_an_option_name_of_a_files_string_is_named_never_shown() {
     let system = saving(secrets(), SAVED_MEDIA);
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let base = Path::new("/home/me");
     let lock = LockSettings::default();
     let refused = [
@@ -1564,7 +1537,9 @@ fn only_the_mongodb_backend_takes_a_store_string_nested_in_an_option() {
 #[tokio::test]
 async fn a_folder_after_the_collection_is_a_folder_inside_the_store() {
     let system = saving(secrets(), SAVED_MEDIA);
-    let parsed = mongo_parsed(&system, "mongodb://h/notes/docs/drafts?files=arky://media").unwrap();
+    let parsed = mongo_parsed(&system, "mongodb://h/notes/docs/drafts?files=arky://media")
+        .await
+        .unwrap();
     assert_eq!(parsed.driver, "mongodb://h/notes");
     assert_eq!(parsed.folder, Some(path("drafts")));
     let collection = Box::new(FileStore::new(PathBuf::from("/collection"), &system));
@@ -1576,6 +1551,7 @@ async fn a_folder_after_the_collection_is_a_folder_inside_the_store() {
     assert_eq!(
         system
             .read_to_string(Path::new("/collection/drafts/a.md"))
+            .await
             .unwrap(),
         "# A\n"
     );
@@ -1607,7 +1583,7 @@ fn a_mongodb_string_in_a_path_splits_after_the_collection_and_keeps_its_query_on
 async fn a_mongodb_string_with_no_collection_no_files_files_elsewhere_or_an_unknown_option_is_an_invalid_store()
  {
     let system = saving(secrets(), SAVED_MEDIA);
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let base = Path::new("/home/me");
     let lock = LockSettings::default();
     let elsewhere = "a MongoDB store keeps its files in MinIO only";
@@ -1696,7 +1672,7 @@ async fn a_mongodb_string_with_no_collection_no_files_files_elsewhere_or_an_unkn
 #[tokio::test]
 async fn a_files_store_not_configured_is_not_configured_naming_the_string_and_files() {
     let system = saving(secrets(), SAVED_MEDIA);
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let base = Path::new("/home/me");
     let lock = LockSettings::default();
     let unset = [
@@ -1730,7 +1706,7 @@ async fn no_error_of_a_mongodb_string_shows_its_password() {
     let system = saving(secrets(), SAVED_MEDIA)
         .with_env("MONGO_PASSWORD", PASSWORD)
         .unwrap();
-    let backends = saved_backends(&system, "/home/me");
+    let backends = saved_backends(&system, "/home/me").await;
     let base = Path::new("/home/me");
     let lock = LockSettings::default();
     let server = "mongodb://u:${MONGO_PASSWORD}@h";

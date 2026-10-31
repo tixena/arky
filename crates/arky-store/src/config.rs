@@ -20,12 +20,12 @@
 use alloc::collections::BTreeMap;
 use core::fmt::Display;
 use core::time::Duration;
-use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 
 use arky::parser::ast::{Mapping, Value};
 use arky::parser::read_toml;
 use os_shim::System;
+use os_shim::error::ErrorKind;
 
 use crate::StoreError;
 use crate::lock::LockSettings;
@@ -63,12 +63,12 @@ impl Configuration {
     ///
     /// `StoreError::NotConfigured`, naming the file, when an `arky.toml` does
     /// not read or one of its keys breaks a rule.
-    pub fn discover(system: &dyn System, folder: &Path) -> Result<Self, StoreError> {
+    pub async fn discover(system: &dyn System, folder: &Path) -> Result<Self, StoreError> {
         let start = resolved(&against_current(system, folder)?);
         let mut found = Found::default();
         for ancestor in start.ancestors() {
             let file = ancestor.join(FILE_NAME);
-            if let Some(source) = source_of(system, &file, &file)? {
+            if let Some(source) = source_of(system, &file, &file).await? {
                 found.fill_from(parse(&file, &file, &source)?);
             }
         }
@@ -85,9 +85,10 @@ impl Configuration {
     ///
     /// `StoreError::NotConfigured`, naming `file` as given, when it does not
     /// exist, does not read, or one of its keys breaks a rule.
-    pub fn read(system: &dyn System, file: &Path) -> Result<Self, StoreError> {
+    pub async fn read(system: &dyn System, file: &Path) -> Result<Self, StoreError> {
         let path = resolved(&against_current(system, file)?);
-        let source = source_of(system, &path, file)?
+        let source = source_of(system, &path, file)
+            .await?
             .ok_or_else(|| in_file(file, &"the configuration file does not exist"))?;
         Ok(parse(file, &path, &source)?.into_configuration())
     }
@@ -116,8 +117,8 @@ impl SavedStores {
     /// # Errors
     ///
     /// The errors of [`Configuration::discover`].
-    pub fn discover(system: &dyn System, folder: &Path) -> Result<Self, StoreError> {
-        Ok(Configuration::discover(system, folder)?.stores)
+    pub async fn discover(system: &dyn System, folder: &Path) -> Result<Self, StoreError> {
+        Ok(Configuration::discover(system, folder).await?.stores)
     }
 
     /// The store saved as `name`.
@@ -316,8 +317,12 @@ fn saved_store(
 
 /// The text of the configuration file at `path`, or `None` where no file is;
 /// an error names `file`.
-fn source_of(system: &dyn System, path: &Path, file: &Path) -> Result<Option<String>, StoreError> {
-    match system.read_to_string(path) {
+async fn source_of(
+    system: &dyn System,
+    path: &Path,
+    file: &Path,
+) -> Result<Option<String>, StoreError> {
+    match system.read_to_string(path).await {
         Ok(source) => Ok(Some(source)),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
         Err(error) => Err(in_file(file, &error)),

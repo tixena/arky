@@ -88,13 +88,15 @@ where
     S: AsyncFn(&AnyStore<'_>),
 {
     let runtime = Builder::new_current_thread().build().unwrap();
-    let memory = MemorySystem::new();
-    let in_memory = AnyStore::File(FileStore::new(PathBuf::from("/vault"), &memory));
-    runtime.block_on(scenario(&in_memory));
-    let real = RealSystem::new();
-    let folder = real.create_temp_dir().unwrap();
-    let on_disk = AnyStore::File(FileStore::new(folder.path().to_path_buf(), &real));
-    runtime.block_on(scenario(&on_disk));
+    runtime.block_on(async {
+        let memory = MemorySystem::new();
+        let in_memory = AnyStore::File(FileStore::new(PathBuf::from("/vault"), &memory));
+        scenario(&in_memory).await;
+        let real = RealSystem::new();
+        let folder = real.create_temp_dir().await.unwrap();
+        let on_disk = AnyStore::File(FileStore::new(folder.path().to_path_buf(), &real));
+        scenario(&on_disk).await;
+    });
 }
 
 /// Gets the document at `from` in `form` and puts those bytes at `to`.

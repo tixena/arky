@@ -3,12 +3,14 @@
 
 use alloc::collections::BTreeMap;
 use std::env;
+use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use arky::bundle::{BundledDocument, Missing};
 use arky::forms::{Form, encode};
 use arky::parser::parse;
 use arky::writer::WriteOptions;
-use os_shim::bucket::{Bucket as _, Condition, S3Bucket, S3Config};
+use os_shim::bucket::{Bucket as _, Condition, Depth, S3Bucket, S3Config};
 use os_shim::real::RealSystem;
 use uuid::Uuid;
 
@@ -18,7 +20,7 @@ use crate::object::{ObjectStore, S3ObjectConfig};
 use crate::{Precondition, Store as _, StoreError};
 
 /// The machine the stores of these tests run on.
-static MACHINE: RealSystem = RealSystem::new();
+static MACHINE: LazyLock<RealSystem> = LazyLock::new(RealSystem::new);
 
 /// The test bucket itself, to see and remove every key, locks included.
 fn bucket() -> S3Bucket {
@@ -30,14 +32,25 @@ fn bucket() -> S3Bucket {
     ))
 }
 
+/// The key of each object under `prefix`, sorted.
+async fn keys(prefix: &str) -> Vec<String> {
+    let folder = PathBuf::from(format!("/{prefix}"));
+    let entries = bucket().list(&folder, Depth::All).await.unwrap();
+    entries
+        .iter()
+        .filter(|entry| entry.is_file)
+        .map(|entry| entry.path.to_str().unwrap()[1..].to_owned())
+        .collect()
+}
+
 /// Deletes every key under `prefix` and checks that none is left.
 async fn remove(prefix: &str) {
     let bucket = bucket();
-    let under = format!("{prefix}/");
-    for key in bucket.list(&under).await.unwrap() {
-        bucket.delete(&key, &Condition::None).await.unwrap();
+    for key in keys(prefix).await {
+        let place = PathBuf::from(format!("/{key}"));
+        bucket.delete(&place, &Condition::None).await.unwrap();
     }
-    assert_eq!(bucket.list(&under).await.unwrap(), Vec::<String>::new());
+    assert_eq!(keys(prefix).await, Vec::<String>::new());
 }
 
 /// A store over the test bucket under a new `arky-tests/<uuid>` prefix, and
@@ -49,7 +62,7 @@ fn store() -> (ObjectStore<'static, S3Bucket>, String) {
         env::var("ARKY_TEST_S3_BUCKET").unwrap(),
         Some(path(&prefix)),
     );
-    (ObjectStore::open_s3(&MACHINE, config).unwrap(), prefix)
+    (ObjectStore::open_s3(&*MACHINE, config).unwrap(), prefix)
 }
 
 #[tokio::test]
@@ -100,9 +113,8 @@ async fn a_save_with_an_embedded_picture_reads_back_and_leaves_no_lock() {
     .await
     .unwrap();
     assert_eq!(get(&store, &report, Missing::Refuse).await.unwrap(), bundle);
-    let keys = bucket().list(&format!("{prefix}/")).await.unwrap();
     assert_eq!(
-        keys,
+        keys(&prefix).await,
         [
             format!("{prefix}/notes/media/logo.png"),
             format!("{prefix}/notes/report.md"),

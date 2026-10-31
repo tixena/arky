@@ -229,11 +229,12 @@
 //! use os_shim::System as _;
 //! use os_shim::mock::MemorySystem;
 //!
+//! # tokio::runtime::Builder::new_current_thread().build()?.block_on(async {
 //! let notes = MemorySystem::new()
 //!     .with_file("/recipes/bread.md", b"# Bread\n\n![Loaf](images/loaf.gif)\n")?
 //!     .with_file("/recipes/images/loaf.gif", b"GIF89a")?;
 //! let path = Path::new("/recipes/bread.md");
-//! let bundle = BundledDocument::from_file(&notes, path, Missing::Refuse)?;
+//! let bundle = BundledDocument::from_file(&notes, path, Missing::Refuse).await?;
 //! assert_eq!(bundle.files(), ["images/loaf.gif"]);
 //!
 //! let options = WriteOptions::default();
@@ -246,12 +247,17 @@
 //! let unpacked = decode(&one_file, Form::Markdown, Missing::Refuse)?;
 //! assert_eq!(unpacked, bundle);
 //! let elsewhere = MemorySystem::new();
-//! unpacked.to_file(&elsewhere, Path::new("/copy/bread.md"), &options)?;
+//! unpacked.to_file(&elsewhere, Path::new("/copy/bread.md"), &options).await?;
 //! assert_eq!(
-//!     elsewhere.read_to_string(Path::new("/copy/bread.md"))?,
+//!     elsewhere.read_to_string(Path::new("/copy/bread.md")).await?,
 //!     "# Bread\n\n![Loaf](images/loaf.gif)\n",
 //! );
-//! assert_eq!(elsewhere.read_to_string(Path::new("/copy/images/loaf.gif"))?, "GIF89a");
+//! assert_eq!(
+//!     elsewhere.read_to_string(Path::new("/copy/images/loaf.gif")).await?,
+//!     "GIF89a",
+//! );
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # })?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!

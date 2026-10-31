@@ -11,10 +11,11 @@ use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 use std::time::SystemTime;
 
+use os_shim::System;
+use os_shim::bucket::Condition;
 #[cfg(feature = "minio")]
 use os_shim::bucket::MemoryBucket;
 use os_shim::mock::MemorySystem;
-use os_shim::{System, WriteMode};
 use uuid::Uuid;
 
 use super::{
@@ -733,7 +734,8 @@ async fn the_sample_waits_on_a_lock_file_then_removes_it_once_it_has_expired() {
     let lock = "/vault/notes/report.md.arky-lock".as_ref();
     let guid = "a41c1f02-77e4-4b8e-9d0c-3e5b8f6a2d19";
     system
-        .write(lock, guid.as_bytes(), WriteMode::CreateNew)
+        .write(lock, guid.as_bytes(), Condition::Absent)
+        .await
         .unwrap();
     let store = FileStore::new("/vault".into(), &system);
     let saved = save(&store, TEXT, A_PNG, &Precondition::None).await;
@@ -741,13 +743,14 @@ async fn the_sample_waits_on_a_lock_file_then_removes_it_once_it_has_expired() {
     assert!(
         !system
             .exists("/vault/notes/media/logo.png".as_ref())
+            .await
             .unwrap()
     );
     system.advance(Duration::from_secs(4)).unwrap();
     save(&store, TEXT, A_PNG, &Precondition::None)
         .await
         .unwrap();
-    assert!(!system.exists(lock).unwrap());
+    assert!(!system.exists(lock).await.unwrap());
 }
 
 async fn make_lock<S>(store: &S, file: &str)

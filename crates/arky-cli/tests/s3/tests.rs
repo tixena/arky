@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::sync::LazyLock;
 use std::time::SystemTime;
 
 use arky_store::object::{ObjectStore, S3ObjectConfig};
@@ -15,7 +16,7 @@ const PNG: &[u8] = b"\x89PNG\r\n\x1a\n not a real picture";
 const REPORT: &str = "# Report\n\n![Logo](media/logo.png)\n";
 
 /// The machine the store of these tests runs on.
-static MACHINE: RealSystem = RealSystem::new();
+static MACHINE: LazyLock<RealSystem> = LazyLock::new(RealSystem::new);
 
 /// `arky` run in `root`.
 fn arky(root: &Path) -> Command {
@@ -75,7 +76,7 @@ fn a_document_with_a_picture_written_to_s3_reads_back_whole_and_fix_finds_no_loc
 
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
     let config = S3ObjectConfig::new(region, bucket, Some(StorePath::new(&prefix).unwrap()));
-    let objects = ObjectStore::open_s3(&MACHINE, config).unwrap();
+    let objects = ObjectStore::open_s3(&*MACHINE, config).unwrap();
     runtime.block_on(async {
         for path in objects.list(None).await.unwrap() {
             objects.delete(&path, &Precondition::None).await.unwrap();
