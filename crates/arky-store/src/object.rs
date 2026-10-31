@@ -3,7 +3,7 @@
 //! This module needs the `minio` feature or the `s3` feature. [`ObjectStore`]
 //! works over any os-shim [`Bucket`]: `MinioBucket` for a `MinIO` or other
 //! S3-compatible server, `S3Bucket` for an AWS S3 bucket, or
-//! [`MemoryBucket`](os_shim::bucket::MemoryBucket) in tests, which reaches no
+//! [`MemoryBucket`] in tests, which reaches no
 //! server.
 #![cfg_attr(
     feature = "minio",
