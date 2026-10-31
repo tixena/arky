@@ -20,14 +20,16 @@ use core::future;
 use core::str;
 use core::time::Duration;
 use std::env::VarError;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use os_shim::System;
-use os_shim::bucket::{Bucket, Condition, MemoryBucket, ObjectError, ObjectErrorKind};
+use os_shim::bucket::{Bucket, Condition, Depth, Guarantee, MemoryBucket, RevisionToken};
 #[cfg(feature = "minio")]
 use os_shim::bucket::{MinioBucket, MinioConfig};
 #[cfg(feature = "s3")]
 use os_shim::bucket::{S3Bucket, S3Config};
+use os_shim::error::{ErrorKind, StorageError};
 
 use crate::lock::{self, Found, LockSettings, Locks};
 use crate::{
@@ -59,7 +61,7 @@ pub trait EnsureBucket {
 /// `vault/notes/a.md`; with none, it is the object `notes/a.md`. A key holds
 /// at most 1024 bytes. A revision is the object's `ETag`, as the bucket gives
 /// it. A precondition goes to the bucket with the put, as
-/// `Condition::Absent` or `Condition::ETag`, so the check and the write are
+/// `Condition::Absent` or `Condition::Matches`, so the check and the write are
 /// one step. A save of a document and its files holds a lock object beside the
 /// document (see [`lock`]), and the store's `system` gives the clock that
 /// lock's age counts on.
@@ -78,8 +80,8 @@ pub trait EnsureBucket {
 ///     let path = StorePath::new("notes/a.md")?;
 ///
 ///     let written = store.write(&path, b"# A\n", &Precondition::Absent).await?;
-///     assert_eq!(bucket.list("").await?, ["vault/notes/a.md"]);
-///     assert_eq!(bucket.get("vault/notes/a.md").await?.etag, written.0);
+///     let (_bytes, revision) = bucket.get("/vault/notes/a.md".as_ref()).await?;
+///     assert_eq!(revision.as_str(), written.0);
 ///     Ok(())
 /// }
 /// ```
@@ -97,19 +99,27 @@ impl<'system, B: Bucket> ObjectStore<'system, B> {
         let root = self
             .prefix
             .as_ref()
-            .map_or_else(String::new, |store| format!("{store}/"));
-        let listed = prefix.map_or_else(|| root.clone(), |folder| format!("{root}{folder}/"));
-        let keys = self.bucket.list(&listed).await.map_err(|error| {
-            StoreError::Backend(
-                prefix.map_or_else(|| error.to_string(), |folder| format!("{folder}: {error}")),
-            )
-        })?;
-        let mut paths = keys
+            .map_or_else(|| PathBuf::from("/"), |store| bucket_path(store.as_str()));
+        let listed = prefix.map_or_else(|| root.clone(), |folder| root.join(folder.as_str()));
+        let entries = match self.bucket.list(&listed, Depth::All).await {
+            Ok(entries) => entries,
+            Err(error) if missing(&error) => Vec::new(),
+            Err(error) => {
+                return Err(StoreError::Backend(prefix.map_or_else(
+                    || error.to_string(),
+                    |folder| format!("{folder}: {error}"),
+                )));
+            }
+        };
+        let mut paths = entries
             .iter()
-            .filter(|key| !key.ends_with('/'))
-            .map(|key| {
-                key.strip_prefix(&root)
-                    .map_or_else(|| Err(StoreError::InvalidPath(key.clone())), StorePath::new)
+            .filter(|entry| entry.is_file)
+            .map(|entry| {
+                let relative = entry.path.strip_prefix(&root).ok().and_then(Path::to_str);
+                relative.map_or_else(
+                    || Err(StoreError::InvalidPath(entry.path.display().to_string())),
+                    StorePath::new,
+                )
             })
             .collect::<Result<Vec<_>, _>>()?;
         paths.sort_unstable();
@@ -156,6 +166,30 @@ impl<'system, B: Bucket> ObjectStore<'system, B> {
             prefix,
             system,
         }
+    }
+
+    /// The bucket path of the object that holds the file at `path`.
+    fn place(&self, path: &StorePath) -> PathBuf {
+        bucket_path(&self.key(path))
+    }
+
+    /// The bucket's put, after the parent folder is made on a bucket that keeps folders.
+    async fn put(
+        &self,
+        path: &StorePath,
+        bytes: &[u8],
+        condition: &Condition,
+    ) -> Result<RevisionToken, StorageError> {
+        let place = self.place(path);
+        if self
+            .bucket
+            .guarantees()
+            .contains(Guarantee::EmptyFoldersExist)
+            && let Some(parent) = place.parent()
+        {
+            self.bucket.create_folder(parent).await?;
+        }
+        self.bucket.put(&place, bytes, condition).await
     }
 
     /// The same store, its keys under `folder` inside the current prefix.
@@ -330,44 +364,12 @@ impl<B: Bucket> Locks for ObjectStore<'_, B> {
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_err(|error| StoreError::Backend(format!("{lock}: {error}")))?;
         let bytes = format!("{guid} {}", taken.as_secs());
-        match self
-            .bucket
-            .put(&self.key(lock), bytes.as_bytes(), &Condition::Absent)
-            .await
-        {
+        match self.put(lock, bytes.as_bytes(), &Condition::Absent).await {
             Ok(_) => Ok(true),
-            Err(error) if error.kind() == ObjectErrorKind::PreconditionFailed => Ok(false),
-            Err(error) => Err(failure(lock, &error)),
-        }
-    }
-
-    async fn find(&self, lock: &StorePath) -> Result<Option<Found>, StoreError> {
-        let object = match self.bucket.get(&self.key(lock)).await {
-            Ok(object) => object,
-            Err(error) if error.kind() == ObjectErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(failure(lock, &error)),
-        };
-        let (holder, taken) =
-            held_by(&object.bytes).unwrap_or((String::new(), SystemTime::UNIX_EPOCH));
-        Ok(Some(Found {
-            holder,
-            taken,
-            tag: object.etag.into_bytes(),
-        }))
-    }
-
-    async fn remove_if(&self, lock: &StorePath, found: &Found) -> Result<bool, StoreError> {
-        let tag = String::from_utf8_lossy(&found.tag).into_owned();
-        match self
-            .bucket
-            .delete(&self.key(lock), &Condition::ETag(tag))
-            .await
-        {
-            Ok(()) => Ok(true),
             Err(error)
                 if matches!(
                     error.kind(),
-                    ObjectErrorKind::PreconditionFailed | ObjectErrorKind::NotFound
+                    ErrorKind::AlreadyExists | ErrorKind::PreconditionFailed
                 ) =>
             {
                 Ok(false)
@@ -376,11 +378,43 @@ impl<B: Bucket> Locks for ObjectStore<'_, B> {
         }
     }
 
+    async fn find(&self, lock: &StorePath) -> Result<Option<Found>, StoreError> {
+        let (bytes, tag) = match self.bucket.get(&self.place(lock)).await {
+            Ok(object) => object,
+            Err(error) if missing(&error) => return Ok(None),
+            Err(error) => return Err(failure(lock, &error)),
+        };
+        let (holder, taken) = held_by(&bytes).unwrap_or((String::new(), SystemTime::UNIX_EPOCH));
+        Ok(Some(Found {
+            holder,
+            taken,
+            tag: tag.as_str().as_bytes().to_vec(),
+        }))
+    }
+
+    async fn remove_if(&self, lock: &StorePath, found: &Found) -> Result<bool, StoreError> {
+        let token = RevisionToken::new(String::from_utf8_lossy(&found.tag));
+        match self
+            .bucket
+            .delete(&self.place(lock), &Condition::Matches(token))
+            .await
+        {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == ErrorKind::PreconditionFailed || missing(&error) => {
+                Ok(false)
+            }
+            Err(error) => Err(failure(lock, &error)),
+        }
+    }
+
     /// The object's `ETag`, from a request that sends no bytes back.
     async fn revision(&self, path: &StorePath) -> Result<Option<Revision>, StoreError> {
-        match self.bucket.head(&self.key(path)).await {
-            Ok(head) => Ok(Some(Revision(head.etag))),
-            Err(error) if error.kind() == ObjectErrorKind::NotFound => Ok(None),
+        match self.bucket.head(&self.place(path)).await {
+            Ok(head) if head.is_file => Ok(head
+                .revision
+                .map(|token| Revision(token.as_str().to_owned()))),
+            Ok(_) => Ok(None),
+            Err(error) if missing(&error) => Ok(None),
             Err(error) => Err(failure(path, &error)),
         }
     }
@@ -407,7 +441,7 @@ impl<B: Bucket + EnsureBucket> Store for ObjectStore<'_, B> {
         precondition: &Precondition,
     ) -> Result<(), StoreError> {
         self.bucket
-            .delete(&self.key(path), &condition(precondition))
+            .delete(&self.place(path), &condition(precondition))
             .await
             .map_err(|error| failure(path, &error))
     }
@@ -432,14 +466,14 @@ impl<B: Bucket + EnsureBucket> Store for ObjectStore<'_, B> {
     }
 
     async fn read(&self, path: &StorePath) -> Result<Stored, StoreError> {
-        let object = self
+        let (bytes, token) = self
             .bucket
-            .get(&self.key(path))
+            .get(&self.place(path))
             .await
             .map_err(|error| failure(path, &error))?;
         Ok(Stored {
-            bytes: object.bytes,
-            revision: Revision(object.etag),
+            bytes,
+            revision: Revision(token.as_str().to_owned()),
         })
     }
 
@@ -486,21 +520,19 @@ impl<B: Bucket + EnsureBucket> Store for ObjectStore<'_, B> {
         if key.len() > LONGEST_KEY {
             return Err(StoreError::InvalidPath(path.as_str().to_owned()));
         }
-        let etag = self
-            .bucket
-            .put(&key, bytes, &condition(precondition))
+        let token = self
+            .put(path, bytes, &condition(precondition))
             .await
             .map_err(|error| {
                 // A put with `If-Match` where no object is answers 404 on RustFS.
-                let unmatched = matches!(precondition, Precondition::Matches(_))
-                    && error.kind() == ObjectErrorKind::NotFound;
+                let unmatched = matches!(precondition, Precondition::Matches(_)) && missing(&error);
                 if unmatched {
                     StoreError::Conflict(path.clone())
                 } else {
                     failure(path, &error)
                 }
             })?;
-        Ok(Revision(etag))
+        Ok(Revision(token.as_str().to_owned()))
     }
 
     /// Holds the lock object of `path` from before the first file to after the
@@ -646,7 +678,9 @@ impl S3ObjectConfig {
 fn condition(precondition: &Precondition) -> Condition {
     match precondition {
         Precondition::Absent => Condition::Absent,
-        Precondition::Matches(revision) => Condition::ETag(revision.0.clone()),
+        Precondition::Matches(revision) => {
+            Condition::Matches(RevisionToken::new(revision.0.clone()))
+        }
         Precondition::None => Condition::None,
     }
 }
@@ -659,14 +693,34 @@ fn held_by(bytes: &[u8]) -> Option<(String, SystemTime)> {
     Some((guid.to_owned(), taken))
 }
 
+/// The bucket path of the object at `key`; os-shim's buckets take absolute paths.
+fn bucket_path(key: &str) -> PathBuf {
+    PathBuf::from(format!("/{key}"))
+}
+
 /// `NotFound` or `Conflict` of `path` when `error` says so, else `Backend`
 /// naming `path`.
-fn failure(path: &StorePath, error: &ObjectError) -> StoreError {
+fn failure(path: &StorePath, error: &StorageError) -> StoreError {
     match error.kind() {
-        ObjectErrorKind::NotFound => StoreError::NotFound(path.clone()),
-        ObjectErrorKind::PreconditionFailed => StoreError::Conflict(path.clone()),
-        ObjectErrorKind::Other | _ => StoreError::Backend(format!("{path}: {error}")),
+        ErrorKind::AlreadyExists | ErrorKind::PreconditionFailed => {
+            StoreError::Conflict(path.clone())
+        }
+        ErrorKind::NotADirectory | ErrorKind::NotFound => StoreError::NotFound(path.clone()),
+        ErrorKind::InvalidData
+        | ErrorKind::InvalidInput
+        | ErrorKind::IsADirectory
+        | ErrorKind::Other
+        | ErrorKind::PermissionDenied
+        | ErrorKind::Unavailable
+        | ErrorKind::Unsupported
+        | _ => StoreError::Backend(format!("{path}: {error}")),
     }
+}
+
+/// Whether `error` says no object is at the path: nothing there, or an object
+/// where a folder of the path should be.
+const fn missing(error: &StorageError) -> bool {
+    matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory)
 }
 
 /// The value of the variable `name`, which holds `holds`; the error names the

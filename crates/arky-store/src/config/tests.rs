@@ -55,9 +55,9 @@ fn sample() -> MemorySystem {
 
 /// What `Configuration::discover` gives from `/home/me/work` with `text` as
 /// `/home/me/arky.toml`.
-fn discovered(text: &str) -> Result<Configuration, StoreError> {
+async fn discovered(text: &str) -> Result<Configuration, StoreError> {
     let files = system(&[("/home/me/arky.toml", text)]);
-    Configuration::discover(&files, Path::new("/home/me/work"))
+    Configuration::discover(&files, Path::new("/home/me/work")).await
 }
 
 /// The error `NotConfigured` of `/home/me/arky.toml` with `what`.
@@ -75,10 +75,11 @@ fn store(name: &str, url: &str, defined_in: &str) -> SavedStore {
     }
 }
 
-#[test]
-fn the_files_up_the_tree_accumulate() {
-    let configuration =
-        Configuration::discover(&sample(), Path::new("/home/me/work/vault")).unwrap();
+#[tokio::test]
+async fn the_files_up_the_tree_accumulate() {
+    let configuration = Configuration::discover(&sample(), Path::new("/home/me/work/vault"))
+        .await
+        .unwrap();
     let names: Vec<_> = configuration
         .stores
         .list()
@@ -97,9 +98,11 @@ fn the_files_up_the_tree_accumulate() {
     assert_eq!(configuration.lock.wait, Duration::from_secs(10));
 }
 
-#[test]
-fn a_name_defined_twice_is_the_nearer_store_whole() {
-    let stores = SavedStores::discover(&sample(), Path::new("/home/me/work/vault")).unwrap();
+#[tokio::test]
+async fn a_name_defined_twice_is_the_nearer_store_whole() {
+    let stores = SavedStores::discover(&sample(), Path::new("/home/me/work/vault"))
+        .await
+        .unwrap();
     assert_eq!(
         stores.get("vault_a"),
         Some(&store(
@@ -115,15 +118,17 @@ fn a_name_defined_twice_is_the_nearer_store_whole() {
     assert_eq!(stores.get("vault_d"), None);
 }
 
-#[test]
-fn a_walk_from_higher_up_reads_only_the_files_above() {
-    let stores = SavedStores::discover(&sample(), Path::new("/home/me/work")).unwrap();
+#[tokio::test]
+async fn a_walk_from_higher_up_reads_only_the_files_above() {
+    let stores = SavedStores::discover(&sample(), Path::new("/home/me/work"))
+        .await
+        .unwrap();
     let urls: Vec<_> = stores.list().map(|saved| saved.url.as_str()).collect();
     assert_eq!(urls, ["file:a", "file:b", "s3://acme-c?region=eu-west-1"]);
 }
 
-#[test]
-fn the_default_is_the_nearest_file_that_sets_it() {
+#[tokio::test]
+async fn the_default_is_the_nearest_file_that_sets_it() {
     let files = system(&[
         ("/home/me/arky.toml", "default = \"far\"\n"),
         ("/home/me/work/arky.toml", "default = \"near\"\n"),
@@ -132,19 +137,21 @@ fn the_default_is_the_nearest_file_that_sets_it() {
             "[lock]\nwait_seconds = 3\n",
         ),
     ]);
-    let configuration = Configuration::discover(&files, Path::new("/home/me/work/vault")).unwrap();
+    let configuration = Configuration::discover(&files, Path::new("/home/me/work/vault"))
+        .await
+        .unwrap();
     assert_eq!(configuration.default.as_deref(), Some("near"));
 }
 
-#[test]
-fn a_default_no_file_defines_reads() {
-    let configuration = discovered("default = \"nowhere\"\n").unwrap();
+#[tokio::test]
+async fn a_default_no_file_defines_reads() {
+    let configuration = discovered("default = \"nowhere\"\n").await.unwrap();
     assert_eq!(configuration.default.as_deref(), Some("nowhere"));
     assert_eq!(configuration.stores, SavedStores::default());
 }
 
-#[test]
-fn each_lock_key_is_the_nearest_file_that_sets_it() {
+#[tokio::test]
+async fn each_lock_key_is_the_nearest_file_that_sets_it() {
     let files = system(&[
         (
             "/home/me/arky.toml",
@@ -152,34 +159,41 @@ fn each_lock_key_is_the_nearest_file_that_sets_it() {
         ),
         ("/home/me/work/arky.toml", "[lock]\nexpires_seconds = 30\n"),
     ]);
-    let configuration = Configuration::discover(&files, Path::new("/home/me/work")).unwrap();
+    let configuration = Configuration::discover(&files, Path::new("/home/me/work"))
+        .await
+        .unwrap();
     let both = LockSettings::new(Duration::from_secs(30), Duration::from_secs(7));
     assert_eq!(configuration.lock, both);
 
-    let expires_only = discovered("[lock]\nexpires_seconds = 30\n").unwrap();
+    let expires_only = discovered("[lock]\nexpires_seconds = 30\n").await.unwrap();
     let usual_wait = LockSettings::new(Duration::from_secs(30), LockSettings::default().wait);
     assert_eq!(expires_only.lock, usual_wait);
 
-    let wait_only = discovered("[lock]\nwait_seconds = 7\n").unwrap();
+    let wait_only = discovered("[lock]\nwait_seconds = 7\n").await.unwrap();
     let usual_expires = LockSettings::new(LockSettings::default().expires, Duration::from_secs(7));
     assert_eq!(wait_only.lock, usual_expires);
 }
 
-#[test]
-fn a_walk_with_no_file_anywhere_is_the_default() {
-    let configuration = Configuration::discover(&MemorySystem::new(), Path::new("/home/me/work"));
+#[tokio::test]
+async fn a_walk_with_no_file_anywhere_is_the_default() {
+    let configuration =
+        Configuration::discover(&MemorySystem::new(), Path::new("/home/me/work")).await;
     assert_eq!(configuration, Ok(Configuration::default()));
-    let at_root = Configuration::discover(&MemorySystem::new(), Path::new("/"));
+    let at_root = Configuration::discover(&MemorySystem::new(), Path::new("/")).await;
     assert_eq!(at_root, Ok(Configuration::default()));
 }
 
-#[test]
-fn a_relative_folder_is_taken_against_the_current_folder() {
+#[tokio::test]
+async fn a_relative_folder_is_taken_against_the_current_folder() {
     let files = sample().with_current_dir("/home/me/work").unwrap();
-    let configuration = Configuration::discover(&files, Path::new("vault")).unwrap();
+    let configuration = Configuration::discover(&files, Path::new("vault"))
+        .await
+        .unwrap();
     assert_eq!(configuration.lock.wait, Duration::from_secs(10));
 
-    let above = Configuration::discover(&files, Path::new("vault/..")).unwrap();
+    let above = Configuration::discover(&files, Path::new("vault/.."))
+        .await
+        .unwrap();
     assert_eq!(above.lock.wait, Duration::from_secs(2));
     assert_eq!(
         above.stores.get("vault_a").map(|saved| saved.url.as_str()),
@@ -187,102 +201,110 @@ fn a_relative_folder_is_taken_against_the_current_folder() {
     );
 }
 
-#[test]
-fn other_top_level_keys_are_ignored() {
-    let configuration = discovered("theme = \"dark\"\n\n[editor]\nwrap = true\n").unwrap();
+#[tokio::test]
+async fn other_top_level_keys_are_ignored() {
+    let configuration = discovered("theme = \"dark\"\n\n[editor]\nwrap = true\n")
+        .await
+        .unwrap();
     assert_eq!(configuration, Configuration::default());
 }
 
-#[test]
-fn a_store_with_an_unknown_key_is_refused() {
+#[tokio::test]
+async fn a_store_with_an_unknown_key_is_refused() {
     let text = "[stores.x]\nurl = \"file:a\"\nregion = \"x\"\n";
     assert_eq!(
-        discovered(text),
+        discovered(text).await,
         home_refused("[stores.x] has no key region; it takes url")
     );
 }
 
-#[test]
-fn a_store_with_no_url_is_refused() {
+#[tokio::test]
+async fn a_store_with_no_url_is_refused() {
     assert_eq!(
-        discovered("[stores.x]\n"),
+        discovered("[stores.x]\n").await,
         home_refused("[stores.x] has no url")
     );
 }
 
-#[test]
-fn a_store_whose_url_is_not_a_string_is_refused() {
+#[tokio::test]
+async fn a_store_whose_url_is_not_a_string_is_refused() {
     assert_eq!(
-        discovered("[stores.x]\nurl = 5\n"),
+        discovered("[stores.x]\nurl = 5\n").await,
         home_refused("[stores.x] url is not a string")
     );
 }
 
-#[test]
-fn a_store_that_is_not_a_table_is_refused() {
+#[tokio::test]
+async fn a_store_that_is_not_a_table_is_refused() {
     assert_eq!(
-        discovered("stores = { x = \"file:a\" }\n"),
+        discovered("stores = { x = \"file:a\" }\n").await,
         home_refused("[stores.x] is not a table")
     );
     assert_eq!(
-        discovered("stores = \"file:a\"\n"),
+        discovered("stores = \"file:a\"\n").await,
         home_refused("stores is not a table")
     );
 }
 
-#[test]
-fn a_saved_store_that_names_another_is_refused() {
+#[tokio::test]
+async fn a_saved_store_that_names_another_is_refused() {
     let refusal = home_refused(
         "[stores.x] url names another saved store; a saved store's url is any store string but arky://",
     );
-    assert_eq!(discovered("[stores.x]\nurl = \"arky://y\"\n"), refusal);
-    assert_eq!(discovered("[stores.x]\nurl = \"ARKY://y\"\n"), refusal);
+    assert_eq!(
+        discovered("[stores.x]\nurl = \"arky://y\"\n").await,
+        refusal
+    );
+    assert_eq!(
+        discovered("[stores.x]\nurl = \"ARKY://y\"\n").await,
+        refusal
+    );
 }
 
-#[test]
-fn a_default_that_is_not_a_string_is_refused() {
+#[tokio::test]
+async fn a_default_that_is_not_a_string_is_refused() {
     assert_eq!(
-        discovered("default = 3\n"),
+        discovered("default = 3\n").await,
         home_refused("default is not a string; it names a saved store")
     );
 }
 
-#[test]
-fn a_lock_error_keeps_its_wording_after_the_file() {
+#[tokio::test]
+async fn a_lock_error_keeps_its_wording_after_the_file() {
     assert_eq!(
-        discovered("[lock]\nexpires_seconds = 0\n"),
+        discovered("[lock]\nexpires_seconds = 0\n").await,
         home_refused("expires_seconds in [lock] is not a whole number of seconds above zero")
     );
     assert_eq!(
-        discovered("[lock]\nwait_seconds = \"2\"\n"),
+        discovered("[lock]\nwait_seconds = \"2\"\n").await,
         home_refused("wait_seconds in [lock] is not a whole number of seconds above zero")
     );
     assert_eq!(
-        discovered("[lock]\ntimeout = 5\n"),
+        discovered("[lock]\ntimeout = 5\n").await,
         home_refused("[lock] has no key timeout; it takes expires_seconds and wait_seconds")
     );
     assert_eq!(
-        discovered("lock = 5\n"),
+        discovered("lock = 5\n").await,
         home_refused("lock is not a table")
     );
 }
 
-#[test]
-fn a_file_that_does_not_read_is_refused() {
+#[tokio::test]
+async fn a_file_that_does_not_read_is_refused() {
     assert_eq!(
-        discovered("default = vault\n"),
+        discovered("default = vault\n").await,
         home_refused("`vault` is not a value (at byte 10)")
     );
 }
 
-#[test]
-fn a_broken_file_farther_up_is_refused() {
+#[tokio::test]
+async fn a_broken_file_farther_up_is_refused() {
     let files = system(&[
         ("/home/arky.toml", "[lock]\nwait_seconds = 0\n"),
         ("/home/me/work/arky.toml", WORK),
     ]);
     assert_eq!(
-        Configuration::discover(&files, Path::new("/home/me/work")),
+        Configuration::discover(&files, Path::new("/home/me/work")).await,
         Err(StoreError::NotConfigured(
             "/home/arky.toml: wait_seconds in [lock] is not a whole number of seconds above zero"
                 .to_owned()
@@ -290,12 +312,14 @@ fn a_broken_file_farther_up_is_refused() {
     );
 }
 
-#[test]
-fn a_named_file_is_read_alone() {
+#[tokio::test]
+async fn a_named_file_is_read_alone() {
     let files = sample()
         .with_file("/etc/arky.toml", WORK.as_bytes())
         .unwrap();
-    let configuration = Configuration::read(&files, Path::new("/etc/arky.toml")).unwrap();
+    let configuration = Configuration::read(&files, Path::new("/etc/arky.toml"))
+        .await
+        .unwrap();
     let names: Vec<_> = configuration
         .stores
         .list()
@@ -313,10 +337,12 @@ fn a_named_file_is_read_alone() {
     assert_eq!(configuration.lock, LockSettings::default());
 }
 
-#[test]
-fn a_relative_named_file_is_taken_against_the_current_folder() {
+#[tokio::test]
+async fn a_relative_named_file_is_taken_against_the_current_folder() {
     let files = sample().with_current_dir("/home/me").unwrap();
-    let configuration = Configuration::read(&files, Path::new("work/vault/arky.toml")).unwrap();
+    let configuration = Configuration::read(&files, Path::new("work/vault/arky.toml"))
+        .await
+        .unwrap();
     assert_eq!(
         configuration
             .stores
@@ -329,28 +355,29 @@ fn a_relative_named_file_is_taken_against_the_current_folder() {
         .with_file("/home/me/broken.toml", b"lock = 5\n")
         .unwrap();
     assert_eq!(
-        Configuration::read(&broken, Path::new("broken.toml")),
+        Configuration::read(&broken, Path::new("broken.toml")).await,
         Err(StoreError::NotConfigured(
             "broken.toml: lock is not a table".to_owned()
         ))
     );
 }
 
-#[test]
-fn a_named_file_that_is_missing_is_refused() {
+#[tokio::test]
+async fn a_named_file_that_is_missing_is_refused() {
     assert_eq!(
-        Configuration::read(&sample(), Path::new("/etc/arky.toml")),
+        Configuration::read(&sample(), Path::new("/etc/arky.toml")).await,
         Err(StoreError::NotConfigured(
             "/etc/arky.toml: the configuration file does not exist".to_owned()
         ))
     );
 }
 
-#[test]
-fn a_named_file_with_dot_dot_saves_its_stores_in_the_file_it_names() {
+#[tokio::test]
+async fn a_named_file_with_dot_dot_saves_its_stores_in_the_file_it_names() {
     let files = sample().with_current_dir("/home/me/work/vault").unwrap();
-    let defined = |file: &str| -> Vec<(String, PathBuf)> {
+    let defined = async |file: &str| -> Vec<(String, PathBuf)> {
         Configuration::read(&files, Path::new(file))
+            .await
             .unwrap()
             .stores
             .list()
@@ -358,10 +385,13 @@ fn a_named_file_with_dot_dot_saves_its_stores_in_the_file_it_names() {
             .collect()
     };
     let work = PathBuf::from("/home/me/work/arky.toml");
-    assert_eq!(defined("../arky.toml"), [("vault_c".to_owned(), work)]);
+    assert_eq!(
+        defined("../arky.toml").await,
+        [("vault_c".to_owned(), work)]
+    );
     let home = PathBuf::from("/home/me/arky.toml");
     assert_eq!(
-        defined("./../../arky.toml"),
+        defined("./../../arky.toml").await,
         [
             ("vault_a".to_owned(), home.clone()),
             ("vault_b".to_owned(), home),
@@ -369,11 +399,11 @@ fn a_named_file_with_dot_dot_saves_its_stores_in_the_file_it_names() {
     );
 }
 
-#[test]
-fn a_missing_named_file_with_dot_dot_is_refused_naming_it_as_given() {
+#[tokio::test]
+async fn a_missing_named_file_with_dot_dot_is_refused_naming_it_as_given() {
     let files = sample().with_current_dir("/home/me/work/vault").unwrap();
     assert_eq!(
-        Configuration::read(&files, Path::new("../x.toml")),
+        Configuration::read(&files, Path::new("../x.toml")).await,
         Err(StoreError::NotConfigured(
             "../x.toml: the configuration file does not exist".to_owned()
         ))

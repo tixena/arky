@@ -1,15 +1,194 @@
 //! Store paths, the path of a name beside one, the messages of store
 //! errors, and a store held as a `Box<dyn DynStore>`.
 
+#[cfg(any(feature = "minio", feature = "s3"))]
+use alloc::sync::Arc;
+#[cfg(any(feature = "minio", feature = "s3"))]
+use core::future;
+#[cfg(any(feature = "minio", feature = "s3"))]
+use std::path::Path;
 use std::path::PathBuf;
+#[cfg(any(feature = "minio", feature = "s3"))]
+use std::sync::Mutex;
 
 use arky::bundle::Missing;
 use arky::forms::Form;
 use arky::writer::{WriteOptions, write};
+#[cfg(any(feature = "minio", feature = "s3"))]
+use futures_io::{AsyncRead, AsyncWrite};
+#[cfg(any(feature = "minio", feature = "s3"))]
+use os_shim::bucket::{Bucket, Condition, Depth, Guarantees, MemoryBucket, RevisionToken};
+#[cfg(any(feature = "minio", feature = "s3"))]
+use os_shim::error::{ErrorKind, Result as StorageResult, StorageError};
 use os_shim::mock::MemorySystem;
+#[cfg(any(feature = "minio", feature = "s3"))]
+use os_shim::{FileMetadata, WalkEntry};
 
 use crate::file::FileStore;
+#[cfg(any(feature = "minio", feature = "s3"))]
+use crate::object::EnsureBucket;
 use crate::{DynStore, Precondition, StoreError, StorePath, document};
+
+/// A `MemoryBucket` that notes each `get`, `head` and `ensure_bucket` it
+/// answers; made by `down`, a bucket whose every call fails as an unreachable
+/// server's would.
+#[cfg(any(feature = "minio", feature = "s3"))]
+#[derive(Clone, Default)]
+pub struct TestBucket {
+    bucket: MemoryBucket,
+    down: bool,
+    seen: Arc<Mutex<Vec<String>>>,
+}
+
+#[cfg(any(feature = "minio", feature = "s3"))]
+impl TestBucket {
+    /// `Other` naming `path` when the bucket is down.
+    fn answer(&self, path: &Path) -> StorageResult<()> {
+        if self.down {
+            let message = format!("no answer for `{}`", path.display());
+            return Err(StorageError::new(ErrorKind::Other, message));
+        }
+        Ok(())
+    }
+
+    pub fn down() -> Self {
+        Self {
+            down: true,
+            ..Self::default()
+        }
+    }
+
+    fn note(&self, call: String) {
+        self.seen.lock().unwrap().push(call);
+    }
+
+    pub fn seen(&self) -> Vec<String> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+#[cfg(any(feature = "minio", feature = "s3"))]
+impl Bucket for TestBucket {
+    async fn append(&self, path: &Path, more: &[u8]) -> StorageResult<RevisionToken> {
+        self.answer(path)?;
+        self.bucket.append(path, more).await
+    }
+
+    async fn append_stream<'bucket>(
+        &'bucket self,
+        path: &Path,
+    ) -> StorageResult<Box<dyn AsyncWrite + Send + Unpin + 'bucket>> {
+        self.answer(path)?;
+        self.bucket.append_stream(path).await
+    }
+
+    async fn canonicalize(&self, path: &Path) -> StorageResult<PathBuf> {
+        self.answer(path)?;
+        self.bucket.canonicalize(path).await
+    }
+
+    async fn copy(&self, from: &Path, to: &Path) -> StorageResult<u64> {
+        self.answer(from)?;
+        self.bucket.copy(from, to).await
+    }
+
+    async fn create_folder(&self, path: &Path) -> StorageResult<()> {
+        self.answer(path)?;
+        self.bucket.create_folder(path).await
+    }
+
+    async fn delete(&self, path: &Path, condition: &Condition) -> StorageResult<()> {
+        self.answer(path)?;
+        self.bucket.delete(path, condition).await
+    }
+
+    async fn get(&self, path: &Path) -> StorageResult<(Vec<u8>, RevisionToken)> {
+        self.answer(path)?;
+        self.note(format!("get {}", path.display()));
+        self.bucket.get(path).await
+    }
+
+    /// A down bucket keeps no folders, as a server's bucket keeps none.
+    fn guarantees(&self) -> Guarantees {
+        if self.down {
+            Guarantees::none()
+        } else {
+            self.bucket.guarantees()
+        }
+    }
+
+    async fn head(&self, path: &Path) -> StorageResult<FileMetadata> {
+        self.answer(path)?;
+        self.note(format!("head {}", path.display()));
+        self.bucket.head(path).await
+    }
+
+    async fn list(&self, folder: &Path, depth: Depth) -> StorageResult<Vec<WalkEntry>> {
+        self.answer(folder)?;
+        self.bucket.list(folder, depth).await
+    }
+
+    async fn put(
+        &self,
+        path: &Path,
+        bytes: &[u8],
+        condition: &Condition,
+    ) -> StorageResult<RevisionToken> {
+        self.answer(path)?;
+        self.bucket.put(path, bytes, condition).await
+    }
+
+    async fn read_stream<'bucket>(
+        &'bucket self,
+        path: &Path,
+    ) -> StorageResult<Box<dyn AsyncRead + Send + Unpin + 'bucket>> {
+        self.answer(path)?;
+        self.bucket.read_stream(path).await
+    }
+
+    async fn remove_folder(&self, path: &Path) -> StorageResult<()> {
+        self.answer(path)?;
+        self.bucket.remove_folder(path).await
+    }
+
+    async fn rename(&self, from: &Path, to: &Path) -> StorageResult<()> {
+        self.answer(from)?;
+        self.bucket.rename(from, to).await
+    }
+
+    async fn walk(
+        &self,
+        folder: &Path,
+        follow_links: bool,
+        hidden: bool,
+    ) -> StorageResult<Vec<WalkEntry>> {
+        self.answer(folder)?;
+        self.bucket.walk(folder, follow_links, hidden).await
+    }
+
+    async fn write_stream<'bucket>(
+        &'bucket self,
+        path: &Path,
+        condition: Condition,
+    ) -> StorageResult<Box<dyn AsyncWrite + Send + Unpin + 'bucket>> {
+        self.answer(path)?;
+        self.bucket.write_stream(path, condition).await
+    }
+}
+
+#[cfg(any(feature = "minio", feature = "s3"))]
+impl EnsureBucket for TestBucket {
+    fn ensure_bucket(
+        &self,
+        kms_key_arn: Option<&str>,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send {
+        if self.down {
+            return future::ready(Err(StoreError::Backend("no answer".to_owned())));
+        }
+        self.note(format!("ensure {kms_key_arn:?}"));
+        future::ready(Ok(()))
+    }
+}
 
 #[test]
 fn a_path_of_parts_is_a_store_path() {

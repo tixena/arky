@@ -106,9 +106,11 @@ fn number(bytes: &[u8]) -> usize {
 }
 
 /// The zip `system` holds at its root, as `to_zip_writer` writes it.
-fn zip_of(system: &MemorySystem) -> Vec<u8> {
+async fn zip_of(system: &MemorySystem) -> Vec<u8> {
     let mut zip = Vec::new();
-    to_zip_writer(system, Path::new("/"), &mut zip, ZipOptions::default()).unwrap();
+    to_zip_writer(system, Path::new("/"), &mut zip, ZipOptions::default())
+        .await
+        .unwrap();
     zip
 }
 
@@ -469,8 +471,8 @@ fn json_for_a_stream_carries_each_file_and_reads_back() {
     assert_eq!(decode(&json, Form::Json, Missing::Refuse).unwrap(), bundle);
 }
 
-#[test]
-fn a_data_uri_with_no_name_becomes_a_file() {
+#[tokio::test]
+async fn a_data_uri_with_no_name_becomes_a_file() {
     let document = parse(
         "![Logo](data:image/png;base64,iVBORw0KGgo=)\n\n![Icon](data:image/svg+xml,%3Csvg%2F%3E)\n",
     )
@@ -492,15 +494,16 @@ fn a_data_uri_with_no_name_becomes_a_file() {
     let path = Path::new("/out/report.md");
     bundle
         .to_file(&system, path, &WriteOptions::default())
+        .await
         .unwrap();
     assert_eq!(
-        system.read_to_string(path).unwrap(),
+        system.read_to_string(path).await.unwrap(),
         "![Logo](media/4c4b6a3be1314ab8.png)\n\n![Icon](media/d4dc56669143034f.svg)\n"
     );
 }
 
-#[test]
-fn a_markdown_file_with_data_uris_is_written_back_with_files() {
+#[tokio::test]
+async fn a_markdown_file_with_data_uris_is_written_back_with_files() {
     let system = MemorySystem::new()
         .with_file(
             "/notes/report.md",
@@ -508,18 +511,23 @@ fn a_markdown_file_with_data_uris_is_written_back_with_files() {
         )
         .unwrap();
     let path = Path::new("/notes/report.md");
-    let bundle = BundledDocument::from_file(&system, path, Missing::Refuse).unwrap();
+    let bundle = BundledDocument::from_file(&system, path, Missing::Refuse)
+        .await
+        .unwrap();
     assert_eq!(bundle.files(), ["media/logo.png"]);
     let copy = Path::new("/out/report.md");
     bundle
         .to_file(&system, copy, &WriteOptions::default())
+        .await
         .unwrap();
     assert_eq!(
-        system.read_to_string(copy).unwrap(),
+        system.read_to_string(copy).await.unwrap(),
         "![Logo](media/logo.png)\n"
     );
     assert_eq!(
-        read(&system, Path::new("/out/media/logo.png")).unwrap(),
+        read(&system, Path::new("/out/media/logo.png"))
+            .await
+            .unwrap(),
         b"\x89PNG\r\n\x1a\n"
     );
 }
@@ -717,8 +725,8 @@ fn a_data_uri_s_name_parameter_is_read_in_any_case() {
     assert_eq!(embeds(bundle.document())[0].target, "media/logo.png");
 }
 
-#[test]
-fn a_note_read_from_a_file_has_its_data_uris_made_files() {
+#[tokio::test]
+async fn a_note_read_from_a_file_has_its_data_uris_made_files() {
     let system = MemorySystem::new()
         .with_file("/notes/report.md", b"![[note]]\n")
         .unwrap()
@@ -728,23 +736,29 @@ fn a_note_read_from_a_file_has_its_data_uris_made_files() {
         )
         .unwrap();
     let path = Path::new("/notes/report.md");
-    let bundle = BundledDocument::from_file(&system, path, Missing::Refuse).unwrap();
+    let bundle = BundledDocument::from_file(&system, path, Missing::Refuse)
+        .await
+        .unwrap();
     assert_eq!(bundle.files(), ["note.md", "pic.png"]);
     assert_eq!(bundle.file("note.md"), Some(b"![p](pic.png)\n".as_slice()));
     assert_eq!(bundle.file("pic.png"), Some(b"pic".as_slice()));
     let copy = Path::new("/out/report.md");
     bundle
         .to_file(&system, copy, &WriteOptions::default())
+        .await
         .unwrap();
-    assert_eq!(system.read_to_string(copy).unwrap(), "![[note]]\n");
+    assert_eq!(system.read_to_string(copy).await.unwrap(), "![[note]]\n");
     assert_eq!(
-        system.read_to_string(Path::new("/out/note.md")).unwrap(),
+        system
+            .read_to_string(Path::new("/out/note.md"))
+            .await
+            .unwrap(),
         "![p](pic.png)\n"
     );
 }
 
-#[test]
-fn a_note_s_picture_above_its_folder_reads_back_from_the_embedded_text_at_its_path() {
+#[tokio::test]
+async fn a_note_s_picture_above_its_folder_reads_back_from_the_embedded_text_at_its_path() {
     let system = MemorySystem::new()
         .with_file(
             "/notes/report.md",
@@ -758,7 +772,9 @@ fn a_note_s_picture_above_its_folder_reads_back_from_the_embedded_text_at_its_pa
         .with_file("/notes/media/chart.png", b"chart")
         .unwrap();
     let path = Path::new("/notes/report.md");
-    let bundle = BundledDocument::from_file(&system, path, Missing::Refuse).unwrap();
+    let bundle = BundledDocument::from_file(&system, path, Missing::Refuse)
+        .await
+        .unwrap();
     let back = read_back(&embedded_text(&bundle));
     assert_eq!(
         back.files(),
@@ -826,8 +842,8 @@ fn a_target_with_an_empty_part_reads_back_from_the_embedded_text_at_the_path_it_
     assert_eq!(back, bundle);
 }
 
-#[test]
-fn a_note_on_disk_travels_with_its_pictures() {
+#[tokio::test]
+async fn a_note_on_disk_travels_with_its_pictures() {
     let system = MemorySystem::new()
         .with_file("/notes/report.md", b"# Report\n\n![[parts/intro]]\n")
         .unwrap()
@@ -836,7 +852,9 @@ fn a_note_on_disk_travels_with_its_pictures() {
         .with_file("/notes/media/chart.png", PNG)
         .unwrap();
     let path = Path::new("/notes/report.md");
-    let bundle = BundledDocument::from_file(&system, path, Missing::Refuse).unwrap();
+    let bundle = BundledDocument::from_file(&system, path, Missing::Refuse)
+        .await
+        .unwrap();
     assert_eq!(bundle.files(), ["media/chart.png", "parts/intro.md"]);
     assert_eq!(bundle.file("media/chart.png"), Some(PNG));
     let mut zip = Vec::new();
@@ -900,8 +918,8 @@ fn a_target_above_the_folder_has_no_embedded_path() {
     );
 }
 
-#[test]
-fn a_note_s_target_above_the_folder_is_refused_unless_it_is_allowed() {
+#[tokio::test]
+async fn a_note_s_target_above_the_folder_is_refused_unless_it_is_allowed() {
     let system = MemorySystem::new()
         .with_file("/notes/report.md", b"![[parts/intro]]\n")
         .unwrap()
@@ -914,10 +932,12 @@ fn a_note_s_target_above_the_folder_is_refused_unless_it_is_allowed() {
         .unwrap();
     let path = Path::new("/notes/report.md");
     assert!(matches!(
-        BundledDocument::from_file(&system, path, Missing::Refuse),
+        BundledDocument::from_file(&system, path, Missing::Refuse).await,
         Err(BundledDocumentError::Escapes { target }) if target == "../../shared/logo.png"
     ));
-    let kept = BundledDocument::from_file(&system, path, Missing::Keep).unwrap();
+    let kept = BundledDocument::from_file(&system, path, Missing::Keep)
+        .await
+        .unwrap();
     assert_eq!(kept.files(), ["media/logo.png", "parts/intro.md"]);
     assert_eq!(
         first_note(&kept.embedded().unwrap()),
@@ -953,8 +973,8 @@ fn a_name_outside_the_bundle_is_refused() {
     }
 }
 
-#[test]
-fn a_file_and_its_pictures_make_a_bundle_and_back() {
+#[tokio::test]
+async fn a_file_and_its_pictures_make_a_bundle_and_back() {
     let system = MemorySystem::new()
         .with_file("/notes/report.md", b"# Report\n\n![Logo](media/logo.png)\n")
         .unwrap()
@@ -963,37 +983,47 @@ fn a_file_and_its_pictures_make_a_bundle_and_back() {
         .with_file("/notes/media/other.png", b"other")
         .unwrap();
     let path = Path::new("/notes/report.md");
-    let bundle = BundledDocument::from_file(&system, path, Missing::Refuse).unwrap();
+    let bundle = BundledDocument::from_file(&system, path, Missing::Refuse)
+        .await
+        .unwrap();
     assert_eq!(bundle.files(), ["media/logo.png"]);
     let copy = Path::new("/out/copy.md");
     bundle
         .to_file(&system, copy, &WriteOptions::default())
+        .await
         .unwrap();
     assert_eq!(
-        system.read_to_string(copy).unwrap(),
+        system.read_to_string(copy).await.unwrap(),
         "# Report\n\n![Logo](media/logo.png)\n"
     );
     assert_eq!(
-        read(&system, Path::new("/out/media/logo.png")).unwrap(),
+        read(&system, Path::new("/out/media/logo.png"))
+            .await
+            .unwrap(),
         PNG
     );
-    assert!(!system.exists(Path::new("/out/media/other.png")).unwrap());
+    assert!(
+        !system
+            .exists(Path::new("/out/media/other.png"))
+            .await
+            .unwrap()
+    );
 }
 
-#[test]
-fn a_file_whose_picture_is_absent_fails() {
+#[tokio::test]
+async fn a_file_whose_picture_is_absent_fails() {
     let system = MemorySystem::new()
         .with_file("/notes/report.md", b"![Logo](media/logo.png)\n")
         .unwrap();
     let path = Path::new("/notes/report.md");
     assert!(matches!(
-        BundledDocument::from_file(&system, path, Missing::Refuse),
+        BundledDocument::from_file(&system, path, Missing::Refuse).await,
         Err(BundledDocumentError::Missing { target }) if target == "media/logo.png"
     ));
 }
 
-#[test]
-fn a_missing_file_is_refused_unless_it_is_allowed() {
+#[tokio::test]
+async fn a_missing_file_is_refused_unless_it_is_allowed() {
     let document = parse("![Logo](media/logo.png)\n").document;
     assert!(matches!(
         BundledDocument::new(document.clone(), BTreeMap::new(), Missing::Refuse),
@@ -1005,13 +1035,15 @@ fn a_missing_file_is_refused_unless_it_is_allowed() {
     let system = MemorySystem::new()
         .with_file("/notes/a.md", b"![Logo](media/logo.png)\n")
         .unwrap();
-    let from_disk =
-        BundledDocument::from_file(&system, Path::new("/notes/a.md"), Missing::Keep).unwrap();
+    let from_disk = BundledDocument::from_file(&system, Path::new("/notes/a.md"), Missing::Keep)
+        .await
+        .unwrap();
     from_disk
         .to_file(&system, Path::new("/out/a.md"), &WriteOptions::default())
+        .await
         .unwrap();
     assert_eq!(
-        system.read_to_string(Path::new("/out/a.md")).unwrap(),
+        system.read_to_string(Path::new("/out/a.md")).await.unwrap(),
         "![Logo](media/logo.png)\n"
     );
     assert_eq!(embedded_text(&from_disk), "![Logo](media/logo.png)\n");
@@ -1042,8 +1074,8 @@ fn a_target_that_is_not_utf8_once_decoded_has_no_embedded_path() {
     );
 }
 
-#[test]
-fn a_note_s_target_that_is_not_utf8_once_decoded_is_refused_unless_it_is_allowed() {
+#[tokio::test]
+async fn a_note_s_target_that_is_not_utf8_once_decoded_is_refused_unless_it_is_allowed() {
     let system = MemorySystem::new()
         .with_file("/notes/report.md", b"![[parts/intro]]\n")
         .unwrap()
@@ -1056,21 +1088,23 @@ fn a_note_s_target_that_is_not_utf8_once_decoded_is_refused_unless_it_is_allowed
         .unwrap();
     let path = Path::new("/notes/report.md");
     assert!(matches!(
-        BundledDocument::from_file(&system, path, Missing::Refuse),
+        BundledDocument::from_file(&system, path, Missing::Refuse).await,
         Err(BundledDocumentError::Missing { target }) if target == "../media/%FF.png"
     ));
-    let kept = BundledDocument::from_file(&system, path, Missing::Keep).unwrap();
+    let kept = BundledDocument::from_file(&system, path, Missing::Keep)
+        .await
+        .unwrap();
     assert_eq!(kept.files(), ["media/logo.png", "parts/intro.md"]);
 }
 
-#[test]
-fn a_zip_with_every_entry_under_one_folder_reads() {
+#[tokio::test]
+async fn a_zip_with_every_entry_under_one_folder_reads() {
     let system = MemorySystem::new()
         .with_file("/report/index.md", b"![Logo](media/logo.png)\n")
         .unwrap()
         .with_file("/report/media/logo.png", PNG)
         .unwrap();
-    let zip = zip_of(&system);
+    let zip = zip_of(&system).await;
     assert!(entries(&zip).iter().all(|name| name.starts_with("report/")));
     let bundle = BundledDocument::from_zip(&mut zip.as_slice(), Missing::Refuse).unwrap();
     assert_eq!(bundle.files(), ["media/logo.png"]);
@@ -1091,12 +1125,12 @@ fn a_zip_whose_sizes_follow_the_data_reads() {
     assert_eq!(bundle.file("media/logo.png"), Some(PNG));
 }
 
-#[test]
-fn a_zip_with_no_index_fails() {
+#[tokio::test]
+async fn a_zip_with_no_index_fails() {
     let system = MemorySystem::new()
         .with_file("/media/logo.png", PNG)
         .unwrap();
-    let zip = zip_of(&system);
+    let zip = zip_of(&system).await;
     assert!(matches!(
         BundledDocument::from_zip(&mut zip.as_slice(), Missing::Refuse),
         Err(BundledDocumentError::NoIndex)

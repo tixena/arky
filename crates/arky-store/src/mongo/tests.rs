@@ -7,6 +7,7 @@
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use core::mem;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use std::{env, thread};
 
 use arky::bundle::{BundledDocument, Missing};
@@ -100,7 +101,7 @@ const REVISED_REPORT: &str = "# Revised report\n\n![Logo](media/logo.png)\n";
 const THIRD_PNG: &[u8] = b"\x89PNG\r\n\x1a\n a third picture";
 
 /// The machine the stores of these tests run on.
-static MACHINE: RealSystem = RealSystem::new();
+static MACHINE: LazyLock<RealSystem> = LazyLock::new(RealSystem::new);
 
 static ONE_SAVE: Scenario = Scenario {
     actors: &[
@@ -651,7 +652,7 @@ fn files_of(name: &str) -> ObjectStore<'static, MinioBucket> {
         env::var("ARKY_TEST_MINIO_BUCKET").unwrap(),
         Some(path(&format!("mongo/{name}"))),
     );
-    ObjectStore::open(&MACHINE, config).unwrap()
+    ObjectStore::open(&*MACHINE, config).unwrap()
 }
 
 /// Stops a deletion of the logo `OLD_MD` embedded after its mark, and after
@@ -1640,7 +1641,7 @@ async fn ensure_files_bucket_creates_the_missing_bucket_and_a_saved_picture_read
         "arky-ensure-mongo".to_owned(),
         Some(path(&format!("mongo/{name}"))),
     );
-    let files = ObjectStore::open(&MACHINE, config).unwrap();
+    let files = ObjectStore::open(&*MACHINE, config).unwrap();
     let store = MongoStore::open(&uri(), name, "files", files)
         .await
         .unwrap();

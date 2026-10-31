@@ -23,13 +23,14 @@
 //! use os_shim::System as _;
 //! use os_shim::mock::MemorySystem;
 //!
+//! # tokio::runtime::Builder::new_current_thread().build()?.block_on(async {
 //! let report = b"# Report\n\n![Logo](media/logo.gif)\n\n[spec](spec.pdf)\n";
 //! let notes = MemorySystem::new()
 //!     .with_file("/notes/report.md", report)?
 //!     .with_file("/notes/media/logo.gif", b"GIF89a")?
 //!     .with_file("/notes/spec.pdf", b"%PDF")?;
 //! let path = Path::new("/notes/report.md");
-//! let bundle = BundledDocument::from_file(&notes, path, Missing::Refuse)?;
+//! let bundle = BundledDocument::from_file(&notes, path, Missing::Refuse).await?;
 //! assert_eq!(bundle.files(), ["media/logo.gif"]);
 //!
 //! let mut zip = Vec::new();
@@ -38,22 +39,27 @@
 //! assert_eq!(back, bundle);
 //!
 //! let copy = MemorySystem::new();
-//! back.to_file(&copy, Path::new("/copy/report.md"), &WriteOptions::default())?;
-//! assert_eq!(copy.read_to_string(Path::new("/copy/media/logo.gif"))?, "GIF89a");
+//! back.to_file(&copy, Path::new("/copy/report.md"), &WriteOptions::default()).await?;
+//! assert_eq!(copy.read_to_string(Path::new("/copy/media/logo.gif")).await?, "GIF89a");
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # })?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use core::fmt::{self, Write as _};
+use core::pin::pin;
 use core::slice;
+use core::task::{Context, Poll, Waker};
 use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use os_shim::archive::{ZipOptions, to_zip_writer};
+use os_shim::System;
+use os_shim::bucket::Condition;
+use os_shim::error::StorageError;
 use os_shim::mock::MemorySystem;
-use os_shim::{System, WriteMode};
 use sha2::{Digest as _, Sha256};
 
 use crate::parser::ast::{
@@ -335,7 +341,7 @@ impl BundledDocument {
     /// # Errors
     ///
     /// A file that does not read or is not UTF-8, and the errors of [`BundledDocument::new`].
-    pub fn from_file<S>(
+    pub async fn from_file<S>(
         system: &S,
         path: &Path,
         missing: Missing,
@@ -343,23 +349,27 @@ impl BundledDocument {
     where
         S: System + ?Sized,
     {
-        let document = parse(&text(&path.to_string_lossy(), read(system, path)?)?).document;
+        let document = parse(&text(&path.to_string_lossy(), read(system, path).await?)?).document;
         let folder = path.parent().unwrap_or_else(|| Path::new(""));
-        let present = |name: &str| -> Result<Option<Vec<u8>>, BundledDocumentError> {
-            let file = folder.join(name);
-            if system.is_file(&file)? {
-                Ok(Some(read(system, &file)?))
-            } else {
-                Ok(None)
-            }
-        };
         let mut files = BTreeMap::new();
-        for name in named(&document, present)?
-            .into_iter()
-            .filter_map(|(_, file)| file.into_path())
-        {
-            if let Some(bytes) = present(&name)? {
-                files.insert(name, bytes);
+        let mut absent = BTreeSet::new();
+        // An embedded note names more files only once it is read.
+        loop {
+            let wanted: Vec<String> = named(&document, |name| Ok(files.get(name).cloned()))?
+                .into_iter()
+                .filter_map(|(_, file)| file.into_path())
+                .filter(|name| !files.contains_key(name) && !absent.contains(name))
+                .collect();
+            if wanted.is_empty() {
+                break;
+            }
+            for name in wanted {
+                let file = folder.join(&name);
+                if system.is_file(&file).await? {
+                    files.insert(name, read(system, &file).await?);
+                } else {
+                    absent.insert(name);
+                }
             }
         }
         Self::new(document, files, missing)
@@ -375,16 +385,18 @@ impl BundledDocument {
         let mut buffer = Vec::new();
         source.read_to_end(&mut buffer)?;
         let system = MemorySystem::from_zip_reader(Cursor::new(buffer))?;
-        let root = Path::new("/");
-        let folder = if system.is_file(&root.join(Self::INDEX))? {
-            root.to_path_buf()
-        } else {
-            match system.read_dir(root)?.as_slice() {
-                [only] if system.is_file(&only.join(Self::INDEX))? => only.clone(),
-                _ => return Err(BundledDocumentError::NoIndex),
-            }
-        };
-        Self::from_file(&system, &folder.join(Self::INDEX), missing)
+        at_once(async {
+            let root = Path::new("/");
+            let folder = if system.is_file(&root.join(Self::INDEX)).await? {
+                root.to_path_buf()
+            } else {
+                match system.read_dir(root).await?.as_slice() {
+                    [only] if system.is_file(&only.join(Self::INDEX)).await? => only.clone(),
+                    _ => return Err(BundledDocumentError::NoIndex),
+                }
+            };
+            Self::from_file(&system, &folder.join(Self::INDEX), missing).await
+        })?
     }
 
     /// The tree and the bytes of each file, by its path, taken from the bundle.
@@ -497,7 +509,7 @@ impl BundledDocument {
     /// # Errors
     ///
     /// The writer's error, and a folder or a file that cannot be written.
-    pub fn to_file<S>(
+    pub async fn to_file<S>(
         &self,
         system: &S,
         path: &Path,
@@ -507,18 +519,15 @@ impl BundledDocument {
         S: System + ?Sized,
     {
         let folder = path.parent().unwrap_or_else(|| Path::new(""));
-        system.create_dir_all(folder)?;
-        system.write(
-            path,
-            writer::write(&self.document, options)?.as_bytes(),
-            WriteMode::Replace,
-        )?;
+        system.create_dir_all(folder).await?;
+        let text = writer::write(&self.document, options)?;
+        system.write(path, text.as_bytes(), Condition::None).await?;
         for (name, bytes) in &self.files {
             let file: PathBuf = folder.join(name);
             if let Some(parent) = file.parent() {
-                system.create_dir_all(parent)?;
+                system.create_dir_all(parent).await?;
             }
-            system.write(&file, bytes, WriteMode::Replace)?;
+            system.write(&file, bytes, Condition::None).await?;
         }
         Ok(())
     }
@@ -534,8 +543,12 @@ impl BundledDocument {
         options: &WriteOptions,
     ) -> Result<(), BundledDocumentError> {
         let system = MemorySystem::new();
-        self.to_file(&system, &Path::new("/").join(Self::INDEX), options)?;
-        to_zip_writer(&system, Path::new("/"), sink, ZipOptions::default())?;
+        let zip = at_once(async {
+            self.to_file(&system, &Path::new("/").join(Self::INDEX), options)
+                .await?;
+            Ok::<_, BundledDocumentError>(system.to_zip_vec(Path::new("/")).await?)
+        })??;
+        sink.write_all(&zip)?;
         Ok(())
     }
 
@@ -586,6 +599,12 @@ impl From<BundledDocumentMirror> for BundledDocument {
             document: mirror.document,
             files: mirror.files,
         }
+    }
+}
+
+impl From<StorageError> for BundledDocumentError {
+    fn from(error: StorageError) -> Self {
+        Self::Io(error.into())
     }
 }
 
@@ -1237,13 +1256,25 @@ fn text(path: &str, bytes: Vec<u8>) -> Result<String, BundledDocumentError> {
     })
 }
 
-fn read<S>(system: &S, path: &Path) -> io::Result<Vec<u8>>
+async fn read<S>(system: &S, path: &Path) -> Result<Vec<u8>, StorageError>
 where
     S: System + ?Sized,
 {
-    let mut bytes = Vec::new();
-    system.open(path)?.read_to_end(&mut bytes)?;
+    let (bytes, _revision) = system.read(path).await?;
     Ok(bytes)
+}
+
+/// What `future` gives in a single poll; a `MemorySystem`'s operations never wait.
+fn at_once<F>(future: F) -> Result<F::Output, BundledDocumentError>
+where
+    F: Future,
+{
+    match pin!(future).poll(&mut Context::from_waker(Waker::noop())) {
+        Poll::Ready(output) => Ok(output),
+        Poll::Pending => Err(BundledDocumentError::Io(io::Error::other(
+            "an operation on the bundle in memory did not finish at once",
+        ))),
+    }
 }
 
 /// The text of each block quote of `document`, in document order, a quote inside a quote left

@@ -31,13 +31,13 @@ mongodb = [
     "minio",
 ]
 # The MinIO store: os-shim's MinIO client, and the Bucket trait it implements.
-minio = ["os-shim/minio", "os-shim/async"]
+minio = ["os-shim/minio"]
 # The AWS S3 store: os-shim's S3 client, and the Bucket trait it implements.
-s3 = ["os-shim/s3", "os-shim/async"]
+s3 = ["os-shim/s3"]
 
 [dependencies]
 arky.workspace = true
-os-shim = { workspace = true, features = ["async"] }
+os-shim.workspace = true
 percent-encoding.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
@@ -54,6 +54,7 @@ tokio = { workspace = true, optional = true, features = ["time"] }
 
 [dev-dependencies]
 chrono.workspace = true
+futures-io.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 
 [package.metadata.docs.rs]

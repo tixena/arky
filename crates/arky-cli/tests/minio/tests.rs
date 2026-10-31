@@ -3,6 +3,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::{Command as Process, Stdio};
+use std::sync::LazyLock;
 use std::time::SystemTime;
 
 use arky::parser::parse;
@@ -27,7 +28,7 @@ const PREFIX: &str = "binary/copies";
 const REGION: &str = "us-east-1";
 
 /// The machine the stores of these tests run on.
-static MACHINE: RealSystem = RealSystem::new();
+static MACHINE: LazyLock<RealSystem> = LazyLock::new(RealSystem::new);
 
 /// `arky` run in `root`.
 fn arky(root: &Path) -> Command {
@@ -100,7 +101,7 @@ fn store(prefix: &str) -> String {
 fn each_fixture_piped_into_rustfs_and_back_to_the_file_system_is_arkys_form() {
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
     let config = ObjectConfig::new(endpoint(), REGION.to_owned(), bucket(), None);
-    let whole_bucket = ObjectStore::open(&MACHINE, config).unwrap();
+    let whole_bucket = ObjectStore::open(&*MACHINE, config).unwrap();
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let root = folder.path();
     let store = store(PREFIX);
@@ -171,7 +172,7 @@ fn a_write_to_a_missing_bucket_creates_it_and_a_get_reads_the_document_back() {
 fn fix_removes_the_expired_lock_object_under_a_path_and_leaves_the_fresh_one_and_other_objects() {
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
     let config = ObjectConfig::new(endpoint(), REGION.to_owned(), bucket(), None);
-    let whole_bucket = ObjectStore::open(&MACHINE, config).unwrap();
+    let whole_bucket = ObjectStore::open(&*MACHINE, config).unwrap();
     let ahead = SystemTime::now() + Duration::from_secs(3600);
     let seconds = ahead
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -215,7 +216,7 @@ fn fix_removes_the_expired_lock_object_under_a_path_and_leaves_the_fresh_one_and
 fn a_folder_after_the_bucket_in_a_store_string_or_a_saved_name_is_a_folder_inside_it() {
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
     let config = ObjectConfig::new(endpoint(), REGION.to_owned(), bucket(), None);
-    let whole_bucket = ObjectStore::open(&MACHINE, config).unwrap();
+    let whole_bucket = ObjectStore::open(&*MACHINE, config).unwrap();
     let key = StorePath::new("binary/folder/drafts/ideas.md").unwrap();
     runtime
         .block_on(whole_bucket.write(&key, b"# Ideas\n", &Precondition::None))

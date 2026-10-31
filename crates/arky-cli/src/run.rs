@@ -149,7 +149,7 @@ impl Failure {
         Self::naming(path, at, store_code(error), error)
     }
 
-    fn stream(name: &str, error: &io::Error) -> Self {
+    fn stream(name: &str, error: &dyn Display) -> Self {
         Self {
             code: 4,
             message: format!("{name}: {error}"),
@@ -285,7 +285,7 @@ impl<'system> Setup<'system> {
     /// The configuration and the backends of `system`: the one file `named`
     /// (`--config`) or `ARKY_CONFIG` names, else every `arky.toml` from the
     /// current folder up; the built-in backends and the saved stores.
-    fn new(system: &'system dyn System, named: Option<&Path>) -> Result<Self, Failure> {
+    async fn new(system: &'system dyn System, named: Option<&Path>) -> Result<Self, Failure> {
         let current = system
             .current_dir()
             .map_err(|error| Failure::stream("the current folder", &error))?;
@@ -293,12 +293,11 @@ impl<'system> Setup<'system> {
             Some(file) => Some(file.to_path_buf()),
             None => variable(system, CONFIG_VARIABLE, "the configuration file")?.map(PathBuf::from),
         };
-        let configuration = file
-            .map_or_else(
-                || Configuration::discover(system, &current),
-                |one| Configuration::read(system, &one),
-            )
-            .map_err(|error| Failure::of_configuration(&error))?;
+        let configuration = match file {
+            Some(one) => Configuration::read(system, &one).await,
+            None => Configuration::discover(system, &current).await,
+        }
+        .map_err(|error| Failure::of_configuration(&error))?;
         let backends = Backends::default().with(SavedBackend::new(configuration.stores.clone()));
         Ok(Self {
             backends,
@@ -343,7 +342,7 @@ async fn execute(
     stdin: &mut (dyn Read + Send),
     stdout: &mut (dyn Write + Send),
 ) -> Result<(), Failure> {
-    let setup = Setup::new(system, cli.config.as_deref())?;
+    let setup = Setup::new(system, cli.config.as_deref()).await?;
     let lock = setup.configuration.lock;
     match &cli.command {
         Command::Asset {
@@ -436,6 +435,7 @@ async fn fix_files(
     let given = path.unwrap_or_else(|| Path::new("."));
     let is_folder = system
         .is_dir(&system_path(system, given)?)
+        .await
         .map_err(|error| Failure::naming(given, None, 4, &error))?;
     if !is_folder {
         return Err(Failure::naming(given, None, 2, &"not a folder"));

@@ -69,3 +69,7 @@ tixschema.workspace = true
 # The MongoDB driver and its BSON, under the mongodb feature
 mongodb = { workspace = true, optional = true }
 bson = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The runtime the tests await os-shim's System on
+tokio = { workspace = true, features = ["rt", "macros"] }

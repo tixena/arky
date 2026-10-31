@@ -123,7 +123,7 @@ impl fmt::Debug for Context<'_> {
 ///     let lock = LockSettings::default();
 ///     let store = backends.open("scratch://drafts", Path::new("/"), lock, &system).await?;
 ///     store.write(&StorePath::new("a.md")?, b"# A\n", &Precondition::Absent).await?;
-///     assert_eq!(system.read_to_string(Path::new("/scratch/drafts/a.md"))?, "# A\n");
+///     assert_eq!(system.read_to_string(Path::new("/scratch/drafts/a.md")).await?, "# A\n");
 ///     Ok(())
 /// }
 /// ```
@@ -204,7 +204,7 @@ pub trait Backend: Send + Sync {
 ///
 ///     let store = backends.open("file:${VAULT}", base, lock, &system).await?;
 ///     store.write(&StorePath::new("a.md")?, b"# A\n", &Precondition::Absent).await?;
-///     assert_eq!(system.read_to_string(Path::new("/home/me/notes/a.md"))?, "# A\n");
+///     assert_eq!(system.read_to_string(Path::new("/home/me/notes/a.md")).await?, "# A\n");
 ///
 ///     let (_, path) = backends.open_path("file:notes/a.md", base, lock, &system).await?.ok_or("a plain path")?;
 ///     assert_eq!(path.as_str(), "notes/a.md");
@@ -567,7 +567,7 @@ impl DynStore for Within<'_> {
 ///     let store = Box::new(FileStore::new(PathBuf::from("/notes"), &system));
 ///     let drafts = within(store, StorePath::new("drafts")?);
 ///     drafts.write(&StorePath::new("a.md")?, b"# A\n", &Precondition::Absent).await?;
-///     assert_eq!(system.read_to_string("/notes/drafts/a.md".as_ref())?, "# A\n");
+///     assert_eq!(system.read_to_string("/notes/drafts/a.md".as_ref()).await?, "# A\n");
 ///     assert_eq!(drafts.list(None).await?, [StorePath::new("a.md")?]);
 ///     Ok(())
 /// }

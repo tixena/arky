@@ -135,7 +135,7 @@ pub trait Locks {
         path: &StorePath,
     ) -> impl Future<Output = Result<Option<Revision>, StoreError>> + Send;
 
-    /// The clock: `now` and `sleep_async`.
+    /// The clock: `now` and `sleep`.
     fn system(&self) -> &dyn System;
 }
 
@@ -283,7 +283,7 @@ where
         } else {
             store
                 .system()
-                .sleep_async(settings.wait)
+                .sleep(settings.wait)
                 .await
                 .map_err(|error| StoreError::Backend(format!("{path}: {error}")))?;
             waited = true;

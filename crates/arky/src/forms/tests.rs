@@ -2,7 +2,7 @@
 //! the text and files a store keeps for them.
 
 use alloc::collections::BTreeMap;
-use std::io::{Cursor, Read as _};
+use std::io::Cursor;
 use std::path::Path;
 
 use chrono::{DateTime, NaiveTime, Timelike as _, Utc};
@@ -200,8 +200,8 @@ fn a_bundle_whose_address_holds_a_backslash_reads_back_from_each_form_with_its_f
     }
 }
 
-#[test]
-fn markdown_and_json_hold_each_file_as_a_named_data_uri_and_the_zip_holds_it_at_its_path() {
+#[tokio::test]
+async fn markdown_and_json_hold_each_file_as_a_named_data_uri_and_the_zip_holds_it_at_its_path() {
     let options = WriteOptions::default();
     let uri = "data:image/png;name=media/logo.png;base64,iVBORw0KGgogbm90IGEgcmVhbCBwaWN0dXJl";
     let markdown = encode(&sample(), Form::Markdown, &options).unwrap();
@@ -213,23 +213,18 @@ fn markdown_and_json_hold_each_file_as_a_named_data_uri_and_the_zip_holds_it_at_
     assert!(json.contains(&format!("\"tg\":\"{uri}\"")), "{json}");
     let zip = encode(&sample(), Form::Zip, &options).unwrap();
     let system = MemorySystem::from_zip_reader(Cursor::new(zip)).unwrap();
-    let mut listed = system.read_dir(Path::new("/")).unwrap();
-    listed.extend(system.read_dir(Path::new("/media")).unwrap());
+    let mut listed = system.read_dir(Path::new("/")).await.unwrap();
+    listed.extend(system.read_dir(Path::new("/media")).await.unwrap());
     listed.sort();
     assert_eq!(
         listed,
         ["/index.md", "/media", "/media/logo.png"].map(Path::new)
     );
     assert_eq!(
-        system.read_to_string(Path::new("/index.md")).unwrap(),
+        system.read_to_string(Path::new("/index.md")).await.unwrap(),
         REPORT
     );
-    let mut logo = Vec::new();
-    system
-        .open(Path::new("/media/logo.png"))
-        .unwrap()
-        .read_to_end(&mut logo)
-        .unwrap();
+    let (logo, _revision) = system.read(Path::new("/media/logo.png")).await.unwrap();
     assert_eq!(logo, PNG);
 }
 

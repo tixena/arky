@@ -6,9 +6,10 @@ use core::time::Duration;
 use std::path::{Path, PathBuf};
 use std::process;
 
+use os_shim::System;
+use os_shim::bucket::Condition;
 use os_shim::mock::MemorySystem;
 use os_shim::real::RealSystem;
-use os_shim::{System, WriteMode};
 use tokio::runtime::Builder;
 
 use crate::file::FileStore;
@@ -21,10 +22,12 @@ where
     S: AsyncFn(&dyn System, &Path),
 {
     let runtime = Builder::new_current_thread().build().unwrap();
-    runtime.block_on(scenario(&MemorySystem::new(), Path::new("/vault")));
-    let real = RealSystem::new();
-    let folder = real.create_temp_dir().unwrap();
-    runtime.block_on(scenario(&real, folder.path()));
+    runtime.block_on(async {
+        scenario(&MemorySystem::new(), Path::new("/vault")).await;
+        let real = RealSystem::new();
+        let folder = real.create_temp_dir().await.unwrap();
+        scenario(&real, folder.path()).await;
+    });
 }
 
 /// Every file under `root`, hidden ones included.
@@ -278,7 +281,7 @@ fn two_writes_in_one_process_use_two_temporary_names() {
 #[tokio::test]
 async fn a_failed_write_leaves_no_temporary_file() {
     let real = RealSystem::new();
-    let folder = real.create_temp_dir().unwrap();
+    let folder = real.create_temp_dir().await.unwrap();
     let store = holding(&real, folder.path(), &["notes/a.md"]).await;
     let onto_folder = StorePath::new("notes").unwrap();
     let failed = store.write(&onto_folder, b"x", &Precondition::None).await;
@@ -289,7 +292,7 @@ async fn a_failed_write_leaves_no_temporary_file() {
 #[tokio::test]
 async fn a_write_below_a_file_fails_and_leaves_the_file() {
     let real = RealSystem::new();
-    let folder = real.create_temp_dir().unwrap();
+    let folder = real.create_temp_dir().await.unwrap();
     let store = holding(&real, folder.path(), &["a.md"]).await;
     let below = StorePath::new("a.md/b.md").unwrap();
     let failed = store.write(&below, b"x", &Precondition::Absent).await;
@@ -338,6 +341,7 @@ async fn a_save_in_a_folder_that_does_not_exist_yet_takes_its_lock_there() {
     assert!(
         !system
             .exists(Path::new("/vault/new/report.md.arky-lock"))
+            .await
             .unwrap()
     );
 }
@@ -349,18 +353,23 @@ async fn a_lock_is_a_file_holding_the_guid_and_one_that_is_not_text_never_names_
     let lock = lock_of(&StorePath::new("notes/report.md").unwrap()).unwrap();
     assert!(store.create(&lock, "a-guid").await.unwrap());
     let file = Path::new("/vault/notes/report.md.arky-lock");
-    assert_eq!(system.read_to_string(file).unwrap(), "a-guid");
+    assert_eq!(system.read_to_string(file).await.unwrap(), "a-guid");
     assert!(!store.create(&lock, "another").await.unwrap());
     let found = store.find(&lock).await.unwrap().unwrap();
+    let (_bytes, token) = system.read(file).await.unwrap();
     assert_eq!(
         (found.holder.as_str(), found.tag.as_slice()),
-        ("a-guid", b"a-guid".as_slice())
+        ("a-guid", token.as_str().as_bytes())
     );
 
-    system.write(file, b"\xff\xfe", WriteMode::Replace).unwrap();
+    system
+        .write(file, b"\xff\xfe", Condition::None)
+        .await
+        .unwrap();
     let unreadable = store.find(&lock).await.unwrap().unwrap();
     assert_ne!(unreadable.holder, "a-guid");
-    assert_eq!(unreadable.tag, b"\xff\xfe");
+    let (_unreadable, rewritten) = system.read(file).await.unwrap();
+    assert_eq!(unreadable.tag, rewritten.as_str().as_bytes());
     assert!(store.remove_if(&lock, &unreadable).await.unwrap());
     assert!(store.find(&lock).await.unwrap().is_none());
     assert!(!store.remove_if(&lock, &unreadable).await.unwrap());
@@ -376,5 +385,10 @@ async fn remove_expired_locks_through_a_boxed_store_removes_an_expired_lock() {
         Box::new(FileStore::new(PathBuf::from("/vault"), &system));
     let lock = lock_of(&StorePath::new("a.md").unwrap()).unwrap();
     assert_eq!(store.remove_expired_locks(None).await, Ok(vec![lock]));
-    assert!(!system.exists(Path::new("/vault/a.md.arky-lock")).unwrap());
+    assert!(
+        !system
+            .exists(Path::new("/vault/a.md.arky-lock"))
+            .await
+            .unwrap()
+    );
 }
