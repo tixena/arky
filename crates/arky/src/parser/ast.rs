@@ -71,7 +71,8 @@
 //! issues. Here a stored tag is misspelled:
 //!
 //! ```rust
-//! use arky::parser::ast::{RawDocument, raw_document_schema, raw_document_schema::Stored as _};
+//! use arky::parser::ast::raw_document_schema::{self, DecodeWith as _, Stored as _};
+//! use arky::parser::ast::RawDocument;
 //! use arky::parser::parse;
 //! use serde_json::json;
 //!

@@ -2056,9 +2056,9 @@ checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
 
 [[package]]
 name = "os-shim"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20d5792660b5c7e990afb540d1460468d76b205c0100a768c74a5d88675d4775"
+checksum = "097042832796a6ad28b05ccb38a2614eb35dd8084f1b5d08554e9b59b34451a9"
 dependencies = [
  "aws-sdk-s3",
  "futures-io",
@@ -2948,15 +2948,16 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tixschema"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69989627fc9555b03ceb6e49adbad2c58b0f80bbfd1981116b9ddad24c476730"
+checksum = "596df76cc36092448cbe972bcc537faef210051de30b3a9ff82f08440252468f"
 dependencies = [
  "log",
  "proc-macro2",
  "quote",
  "regex",
  "regex-syntax",
+ "rustversion",
  "syn 3.0.9",
 ]
 
