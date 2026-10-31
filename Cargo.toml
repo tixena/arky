@@ -32,7 +32,7 @@ serde_stacker = "0.1"
 stacker = "0.1.25"
 
 # TypeScript type + Zod schema generation from Rust models
-tixschema = { version = "0.2", features = ["chrono", "indexmap"] }
+tixschema = { version = "0.3", features = ["chrono", "indexmap"] }
 
 # Binary form, read in place
 rkyv = { version = "0.8.17", default-features = false, features = ["std", "bytecheck", "indexmap-2"] }
@@ -48,7 +48,7 @@ unicase = "2.10"
 unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
 
 # The operating system behind a trait, real or in memory
-os-shim = "0.2.0"
+os-shim = "0.2.1"
 
 # The reader and writer traits of os-shim's streams, for the test buckets
 futures-io = "0.3.34"

@@ -8,6 +8,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tixschema::model_schema;
 
+use self::note_schema::DecodeWith as _;
 use super::{from_value, to_value};
 use crate::parser::ast::{Mapping, RawDocument, Value};
 use crate::parser::parse;
