@@ -20,14 +20,14 @@ arky-store = { version = "0.1.1", path = "crates/arky-store" }
 thiserror = "2"
 
 # Insertion-ordered map
-indexmap = { version = "2.1.0", features = ["serde"] }
+indexmap = { version = "2.14.2", features = ["serde"] }
 
 # Dates and times, with no clock
 chrono = { version = "0.4.45", default-features = false, features = ["alloc", "serde"] }
 
 # Serialization of the tree, to JSON and back, at any depth
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = { version = "1.0.48", features = ["unbounded_depth"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["unbounded_depth"] }
 serde_stacker = "0.1"
 stacker = "0.1.25"
 
@@ -35,7 +35,7 @@ stacker = "0.1.25"
 tixschema = { version = "0.3", features = ["chrono", "indexmap"] }
 
 # Binary form, read in place
-rkyv = { version = "0.8.17", default-features = false, features = ["std", "bytecheck", "indexmap-2"] }
+rkyv = { version = "0.8.18", default-features = false, features = ["std", "bytecheck", "indexmap-2"] }
 
 # The MongoDB driver and the BSON it is built for, for tixschema's MongoDB layer
 mongodb = { version = "3.9", default-features = false, features = ["bson-3", "compat-3-3-0", "rustls-tls", "dns-resolver"] }
@@ -60,7 +60,7 @@ sha2 = "0.11.1"
 base64 = "0.23"
 
 # Random GUIDs, the token of a lock a save holds
-uuid = { version = "1.13.0", features = ["v4"] }
+uuid = { version = "1.29.0", features = ["v4"] }
 
 # Store strings: the URL a bucket store string is, and the percent-encoding of
 # the values of its variables
@@ -68,15 +68,15 @@ percent-encoding = "2.3.2"
 url = "2.5.8"
 
 # Async runtime, for the binary and the tests of the stores
-tokio = { version = "1.53.3", default-features = false }
+tokio = { version = "1.54.1", default-features = false }
 
 # The command line
-clap = { version = "4.4.6", features = ["derive"] }
+clap = { version = "4.6.7", features = ["derive"] }
 
 # Tests of the binary
 assert_cmd = "2"
 predicates = "3"
-tempfile = "3.7.0"
+tempfile = "3.27.0"
 
 [profile.release]
 lto = true
