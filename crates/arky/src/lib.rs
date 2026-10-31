@@ -352,7 +352,7 @@ assert!(matches!(
 //! | `-f` with `markdown`, `json`, `zip` or `binary` | [`forms::Form`]; `binary` needs the `binary-format` feature, which `arky-cli` turns on by default |
 //! | `--frontmatter` with `yaml` or `toml` | [`WriteOptions::frontmatter`](writer::WriteOptions::frontmatter) |
 //! | `--allow-missing` | [`Missing::Keep`](bundle::Missing::Keep) in place of [`Missing::Refuse`](bundle::Missing::Refuse) |
-//! | `-s STORE`, `ARKY_STORE` or `default` in `arky.toml`, and `PATH` written as a store string such as `arky://<name>/<path>` | `Backends::open` and `Backends::open_path` of `arky-store`, which open the folder, `MinIO`, AWS S3, `MongoDB` or saved store a store string names, in place of the disk |
+//! | `-s STORE`, `ARKY_STORE` or `default` in `arky.toml`, and `PATH` written as a store string such as `arky://<name>/<path>` | `Backends::open` and `Backends::open_path` of `arky-store`, which open the folder, `MinIO`, `MongoDB` or saved store a store string names, in place of the disk |
 //! | `arky fix [PATH]` | `FileStore::remove_expired_locks` of `arky-store`, or `remove_expired_locks` of the store `-s` names, which removes the expired locks stopped saves left behind |
 //! | `arky asset finish-deletions -s STORE` | `finish_deletions` of the store `-s` names, a `MongoDB` store |
 //!

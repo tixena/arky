@@ -1,7 +1,7 @@
 //! Store strings: one text per store, read by the backend its scheme names.
 //!
 //! A store string is shaped like a URL, such as
-//! `s3://acme-notes/vault?region=eu-west-1`. [`Backends`] holds the backends a
+//! `minio+https://minio.example.com/notes/vault`. [`Backends`] holds the backends a
 //! program can open: the built-in ones, and any of the program's own added
 //! with [`Backends::with`]. A text whose scheme no backend answers is a plain
 //! path of the file store, so `notes:report.md` names a folder of that name.
@@ -10,7 +10,6 @@
 //! | --- | --- | --- | --- |
 //! | file | `file`, and every plain path | `file:///srv/notes` absolute; `file:notes`, `notes` relative to the base folder | none |
 //! | `MinIO`, with the feature `minio` | `minio+http`, `minio+https` | `minio+https://[key:secret@]host[:port]/bucket[/prefix]` | `region` (`us-east-1`) |
-//! | AWS S3, with the feature `s3` | `s3` | `s3://[key:secret@]bucket[/prefix]` | `region` (required), `kms` (none) |
 //! | `MongoDB`, with the feature `mongodb` | `mongodb`, `mongodb+srv` | `mongodb[+srv]://[user:password@]host[:port][,host[:port]…]/<database>/<collection>[/<folder>]` | `files` (required): the `MinIO` store of its files, a store string percent-encoded or `arky://<name>`; every other option goes to the driver |
 //! | saved store, added with [`Backends::with`] | `arky` | `arky://<name>[/<folder>]` | none |
 //!
@@ -29,8 +28,6 @@ mod file;
 mod minio;
 #[cfg(feature = "mongodb")]
 mod mongodb;
-#[cfg(feature = "s3")]
-mod s3;
 
 use alloc::borrow::Cow;
 use alloc::collections::BTreeMap;
@@ -39,7 +36,7 @@ use std::path::{Path, PathBuf};
 
 use os_shim::System;
 use percent_encoding::percent_decode_str;
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 use url::Url;
 
 use crate::lock::LockSettings;
@@ -169,7 +166,7 @@ pub trait Backend: Send + Sync {
 
     /// `text` split into the store string of its container and the path
     /// after it, for a store string written in a path argument:
-    /// `s3://acme-notes/vault/a.md` → (`s3://acme-notes`, `vault/a.md`).
+    /// `minio+https://h/notes/vault/a.md` → (`minio+https://h/notes`, `vault/a.md`).
     ///
     /// # Errors
     ///
@@ -181,8 +178,7 @@ pub trait Backend: Send + Sync {
 /// The backends a program can open, by scheme.
 ///
 /// [`Backends::default`] holds the built-in backends: `file` always, `MinIO`
-/// with the feature `minio`, AWS S3 with the feature `s3`, `MongoDB` with the
-/// feature `mongodb`. It leaves out
+/// with the feature `minio`, `MongoDB` with the feature `mongodb`. It leaves out
 /// [`arky::SavedBackend`], which needs the saved stores: add it with
 /// `with(SavedBackend::new(…))`.
 ///
@@ -374,8 +370,8 @@ impl fmt::Debug for Backends {
 }
 
 impl Default for Backends {
-    /// The built-in backends: `file`, `MinIO` with the feature `minio`, AWS
-    /// S3 with the feature `s3`, `MongoDB` with the feature `mongodb`.
+    /// The built-in backends: `file`, `MinIO` with the feature `minio`,
+    /// `MongoDB` with the feature `mongodb`.
     fn default() -> Self {
         Self {
             registered: Vec::from([
@@ -384,15 +380,13 @@ impl Default for Backends {
                 boxed(minio::MinioBackend),
                 #[cfg(feature = "mongodb")]
                 boxed(mongodb::MongoBackend),
-                #[cfg(feature = "s3")]
-                boxed(s3::S3Backend),
             ]),
         }
     }
 }
 
 /// What a bucket store string writes: its URL, its keys and its options.
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 struct Bucketed {
     keys: Option<Keys>,
     options: BTreeMap<String, String>,
@@ -400,14 +394,14 @@ struct Bucketed {
 }
 
 /// The access key and the secret key a bucket store string carries.
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 #[derive(Clone, PartialEq, Eq)]
 struct Keys {
     access: String,
     secret: String,
 }
 
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 impl fmt::Debug for Keys {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Keys")
@@ -591,7 +585,7 @@ where
 /// `text` as the URL of a bucket store, its keys and its options. An option
 /// not in `takes` and a fragment are refused; an option with no value is
 /// left out.
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 fn bucket_url(text: &str, takes: &[&str]) -> Result<Bucketed, StoreError> {
     let url = parsed(text)?;
     if url.fragment().is_some() {
@@ -624,7 +618,7 @@ fn decoded(text: &str) -> Result<String, StoreError> {
 
 /// The keys `url` carries as `key:secret@`, percent-decoded, or `None` when
 /// it carries none.
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 fn keys(url: &Url) -> Result<Option<Keys>, StoreError> {
     match (url.username(), url.password()) {
         ("", None) => Ok(None),
@@ -641,7 +635,7 @@ fn keys(url: &Url) -> Result<Option<Keys>, StoreError> {
 /// `error`, from a bucket store opened over the keys of the environment, as
 /// `NotConfigured` when a key variable is not set or not UTF-8, its message
 /// kept: that is the only `Backend` error opening one gives.
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 fn missing_keys(error: StoreError) -> StoreError {
     if let StoreError::Backend(message) = error {
         StoreError::NotConfigured(message)
@@ -651,13 +645,13 @@ fn missing_keys(error: StoreError) -> StoreError {
 }
 
 /// `text` parsed as a URL.
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 fn parsed(text: &str) -> Result<Url, StoreError> {
     Url::parse(text).map_err(|error| StoreError::InvalidStore(error.to_string()))
 }
 
 /// The key prefix the path `path` of a URL writes, or `None` for none.
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 fn prefix_of(path: &str) -> Result<Option<StorePath>, StoreError> {
     let trimmed = path.trim_matches('/');
     if trimmed.is_empty() {

@@ -122,7 +122,7 @@ impl From<FormatArg> for Form {
 }
 
 /// A store as the command line names it: a store string
-/// (`s3://acme/vault?region=eu-west-1`), a saved store (`arky://notes`) or a
+/// (`minio+https://minio.example.com/acme/vault`), a saved store (`arky://notes`) or a
 /// folder (`./notes`). The backends read it, so any text parses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreArg(pub String);

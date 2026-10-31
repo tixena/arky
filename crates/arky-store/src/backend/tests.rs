@@ -1,5 +1,5 @@
 //! Store strings over `MemorySystem`: the expansion of their variables, the
-//! file, `MinIO` and AWS S3 backends, the `MongoDB` backend up to the server,
+//! file and `MinIO` backends, the `MongoDB` backend up to the server,
 //! a backend of a test's own, a store string in a path argument, a folder
 //! inside a store, and a saved store by name; under `cfg(store_tests)`, the
 //! `MinIO` backend on the `RustFS` server `just test-stores` starts.
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use os_shim::System as _;
 use os_shim::mock::MemorySystem;
 
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 use super::Keys;
 use super::arky::SavedBackend;
 use super::expand::expand;
@@ -24,18 +24,10 @@ use super::file::FileBackend;
 use super::minio::{self, Minio, MinioBackend};
 #[cfg(feature = "mongodb")]
 use super::mongodb::{self, Mongo, MongoBackend};
-#[cfg(feature = "s3")]
-use super::s3::{self, S3, S3Backend};
 use super::{Backend, Backends, Context, within};
-#[cfg(feature = "s3")]
-use crate::Store;
 use crate::config::{Configuration, SavedStores};
 use crate::file::FileStore;
 use crate::lock::LockSettings;
-#[cfg(feature = "s3")]
-use crate::object::ObjectStore;
-#[cfg(feature = "s3")]
-use crate::tests::TestBucket;
 use crate::{BoxFuture, Capabilities, DynStore, Precondition, StoreError, StorePath};
 
 /// The folder a relative path is relative to in these tests.
@@ -241,7 +233,7 @@ fn secrets() -> MemorySystem {
 }
 
 /// A system whose environment holds the two AWS variables.
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 fn with_aws_keys() -> MemorySystem {
     MemorySystem::new()
         .with_env("AWS_ACCESS_KEY_ID", "AKIA0000")
@@ -275,12 +267,16 @@ fn a_variable_in_a_plain_path_is_taken_as_it_is() {
 fn two_dollars_write_one_and_a_lone_dollar_stays() {
     let system = secrets();
     assert_eq!(
-        expand("s3://cost$$center", &system, true).unwrap().text(),
-        "s3://cost$center"
+        expand("minio+http://cost$$center", &system, true)
+            .unwrap()
+            .text(),
+        "minio+http://cost$center"
     );
     assert_eq!(
-        expand("s3://cost$center", &system, true).unwrap().text(),
-        "s3://cost$center"
+        expand("minio+http://cost$center", &system, true)
+            .unwrap()
+            .text(),
+        "minio+http://cost$center"
     );
 }
 
@@ -325,12 +321,6 @@ async fn no_error_message_shows_a_variable_s_value() {
         "minio+http://${MINIO_USER}:${MINIO_PASSWORD}@127.0.0.1:9000/notes#${MINIO_PASSWORD}",
         #[cfg(feature = "minio")]
         "minio+http://${MINIO_PASSWORD}@127.0.0.1:9000/notes",
-        #[cfg(feature = "s3")]
-        "s3://${MINIO_USER}:${MINIO_PASSWORD}@acme?regoin=eu-west-1",
-        #[cfg(feature = "s3")]
-        "s3://${MINIO_USER}:${MINIO_PASSWORD}@acme",
-        #[cfg(feature = "s3")]
-        "s3://${MINIO_USER}:${MINIO_PASSWORD}@acme:9000?region=eu-west-1",
     ];
     for text in refused {
         let message = backends
@@ -346,8 +336,6 @@ async fn no_error_message_shows_a_variable_s_value() {
     let in_paths = [
         "file:x/${MINIO_PASSWORD}/a\\b.md",
         "file:${MINIO_PASSWORD}/a.md?${MINIO_PASSWORD}",
-        #[cfg(feature = "s3")]
-        "s3://acme/${MINIO_PASSWORD}/a.md",
     ];
     for text in in_paths {
         let message = backends
@@ -548,7 +536,7 @@ async fn a_text_with_no_registered_scheme_is_a_plain_path_in_a_path_argument() {
         "a.md",
         "mailto:me",
         "C:/notes/a.md",
-        "S3://acme/a.md",
+        "MINIO+HTTP://acme/a.md",
         "${HOME}/a.md",
     ];
     for text in plain {
@@ -591,7 +579,6 @@ fn the_default_backends_answer_file_and_the_bucket_schemes_of_this_build() {
         backends.answering("minio+https").is_some(),
         cfg!(feature = "minio")
     );
-    assert_eq!(backends.answering("s3").is_some(), cfg!(feature = "s3"));
     assert_eq!(
         backends.answering("mongodb").is_some(),
         cfg!(feature = "mongodb")
@@ -1262,135 +1249,6 @@ async fn a_minio_string_in_a_path_names_the_bucket_and_the_path_inside_it() {
     assert_eq!(at.as_str(), "vault/a.md");
 }
 
-#[cfg(feature = "s3")]
-#[test]
-fn an_s3_string_names_its_bucket_as_the_host() {
-    let expected = S3 {
-        bucket: "acme-notes".to_owned(),
-        keys: None,
-        kms: None,
-        prefix: Some(path("vault")),
-        region: "eu-west-1".to_owned(),
-    };
-    let parsed = s3::parse("s3://acme-notes/vault?region=eu-west-1").unwrap();
-    assert_eq!(parsed, expected);
-}
-
-#[cfg(feature = "s3")]
-#[test]
-fn an_s3_string_with_keys_and_a_kms_key_carries_them_decoded() {
-    let kms = "arn:aws:kms:eu-west-1:111122223333:key/abcd";
-    let text = format!("s3://AKIA%2Fuser:p%40ss%2Fword@acme-notes?region=eu-west-1&kms={kms}");
-    let expected = S3 {
-        bucket: "acme-notes".to_owned(),
-        keys: Some(Keys {
-            access: "AKIA/user".to_owned(),
-            secret: PASSWORD.to_owned(),
-        }),
-        kms: Some(kms.to_owned()),
-        prefix: None,
-        region: "eu-west-1".to_owned(),
-    };
-    assert_eq!(s3::parse(&text).unwrap(), expected);
-}
-
-#[cfg(feature = "s3")]
-#[test]
-fn an_s3_string_with_no_region_a_port_or_an_unknown_option_is_an_invalid_store() {
-    let refused = [
-        (
-            "s3://acme-notes/vault",
-            "no region: s3 needs ?region=<region>",
-        ),
-        (
-            "s3://acme-notes?region=",
-            "no region: s3 needs ?region=<region>",
-        ),
-        (
-            "s3://acme-notes:9000?region=eu-west-1",
-            "a port, which s3 does not take: the bucket is the host",
-        ),
-        (
-            "s3://acme?region=eu-west-1&regoin=x",
-            "unknown option regoin",
-        ),
-        ("s3:///vault?region=eu-west-1", "no bucket"),
-    ];
-    for (text, message) in refused {
-        let expected = Err(StoreError::InvalidStore(message.to_owned()));
-        assert_eq!(s3::parse(text), expected, "{text}");
-    }
-}
-
-#[cfg(feature = "s3")]
-#[tokio::test]
-async fn an_s3_string_uses_its_keys_else_the_aws_variables() {
-    let backends = Backends::default();
-    let base = Path::new(BASE);
-    let lock = LockSettings::default();
-    let none_set = MemorySystem::new();
-    let with_keys = "s3://AKIA0000:a-secret@acme?region=eu-west-1";
-    backends
-        .open(with_keys, base, lock, &none_set)
-        .await
-        .unwrap();
-
-    let without = "s3://acme?region=eu-west-1";
-    let refused = StoreError::NotConfigured(
-        "AWS_ACCESS_KEY_ID is not set: it holds the AWS access key".to_owned(),
-    );
-    let unset = backends.open(without, base, lock, &none_set).await;
-    assert_eq!(unset.err(), Some(refused));
-    let set = with_aws_keys();
-    backends.open(without, base, lock, &set).await.unwrap();
-}
-
-#[cfg(feature = "s3")]
-#[tokio::test]
-async fn an_s3_string_s_invalid_store_names_the_string_as_written() {
-    let system = with_aws_keys();
-    let text = "s3://acme-notes/vault?regoin=eu-west-1";
-    let backends = Backends::default();
-    let wrong = backends
-        .open(text, Path::new(BASE), LockSettings::default(), &system)
-        .await;
-    let refused = StoreError::InvalidStore(
-        "`s3://acme-notes/vault?regoin=eu-west-1`: unknown option regoin".to_owned(),
-    );
-    assert_eq!(wrong.err(), Some(refused));
-}
-
-#[cfg(feature = "s3")]
-#[tokio::test]
-async fn an_s3_string_in_a_path_names_the_bucket_root_and_the_path_inside_it() {
-    let text = "s3://acme-notes/vault/a.md?region=eu-west-1";
-    let split = S3Backend.split(text).unwrap();
-    let container = "s3://acme-notes?region=eu-west-1";
-    assert_eq!(split, (container.to_owned(), "vault/a.md".to_owned()));
-    assert_eq!(s3::parse(container).unwrap().prefix, None);
-
-    let system = with_aws_keys();
-    let (_, at) = Backends::default()
-        .open_path(text, Path::new(BASE), LockSettings::default(), &system)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(at.as_str(), "vault/a.md");
-}
-
-#[cfg(feature = "s3")]
-#[tokio::test]
-async fn the_kms_key_of_an_s3_string_reaches_the_bucket_it_creates() {
-    let kms = "arn:aws:kms:eu-west-1:111122223333:key/abcd";
-    let parsed = s3::parse(&format!("s3://acme?region=eu-west-1&kms={kms}")).unwrap();
-    let system = MemorySystem::new();
-    let bucket = TestBucket::default();
-    let store = ObjectStore::new(bucket.clone(), None, &system);
-    let finished = s3::finished(store, parsed.kms, LockSettings::default());
-    Store::ensure_container(&finished).await.unwrap();
-    assert_eq!(bucket.seen(), [format!("ensure Some({kms:?})")]);
-}
-
 #[cfg(feature = "mongodb")]
 #[tokio::test]
 async fn a_mongodb_string_hands_the_driver_its_text_without_the_collection_and_files_and_resolves_a_saved_files_name()
@@ -1519,7 +1377,7 @@ async fn a_variable_in_an_option_name_of_a_files_string_is_named_never_shown() {
 #[test]
 fn only_the_mongodb_backend_takes_a_store_string_nested_in_an_option() {
     let backends = Backends::default().with(SavedBackend::new(SavedStores::default()));
-    for scheme in ["arky", "file", "minio+http", "minio+https", "s3"] {
+    for scheme in ["arky", "file", "minio+http", "minio+https"] {
         let nested = backends.answering(scheme).map(Backend::nested_options);
         assert!(nested.is_none_or(<[&str]>::is_empty), "{scheme}");
     }
@@ -1609,8 +1467,8 @@ async fn a_mongodb_string_with_no_collection_no_files_files_elsewhere_or_an_unkn
             "files is required: the MinIO store of the collection's files",
         ),
         (
-            "mongodb://h/notes/docs?files=s3://x?region=eu-west-1",
-            &format!("files names s3; {elsewhere}"),
+            "mongodb://h/notes/docs?files=hdfs://x",
+            &format!("files names hdfs; {elsewhere}"),
         ),
         (
             "mongodb://h/notes/docs?files=file:media",
@@ -1714,7 +1572,7 @@ async fn no_error_of_a_mongodb_string_shows_its_password() {
         format!("{server}/notes?files=arky://media"),
         format!("{server}//docs?files=arky://media"),
         format!("{server}/notes/docs"),
-        format!("{server}/notes/docs?files=s3://x?region=eu-west-1"),
+        format!("{server}/notes/docs?files=hdfs://x"),
         format!("{server}/notes/docs?files=arky://media&bogus=${{MONGO_PASSWORD}}"),
         format!("{server}/notes/docs?files=arky://media&files=arky://media"),
         format!("{server}/notes/docs?files=arky://media#${{MONGO_PASSWORD}}"),

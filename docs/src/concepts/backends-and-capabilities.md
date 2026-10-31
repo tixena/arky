@@ -8,11 +8,11 @@ object store on someone else's servers.
 ## Version tracking is backend-agnostic
 
 arky tracks versions in a way abstracted far enough that no caller has to worry
-about whether the backend is a filesystem, git, Amazon Web Services' S3, Minio,
-MongoDB, or any other store. Those five are examples rather than a supported list:
+about whether the backend is a filesystem, git, Minio, MongoDB, or any other
+store. Those four are examples rather than a supported list:
 a filesystem is a plain directory tree; git is a version-control system that
-already keeps its own history; S3 and Minio are object stores, Minio offering the
-same interface as S3 on hardware one runs oneself; MongoDB is a document database.
+already keeps its own history; Minio is an object store on hardware one runs
+oneself; MongoDB is a document database.
 
 The abstraction depends on the document abstraction above it: version tracking
 over a pluggable backend only means something once a document can exist without a

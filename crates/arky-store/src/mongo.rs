@@ -11,7 +11,7 @@
 //! the collection embeds it. The [`record`] module holds the record types and
 //! the functions that convert them, which need no server.
 //!
-//! A `MongoStore` needs a `MongoDB` server and an S3-compatible server for the
+//! A `MongoStore` needs a `MongoDB` server and a `MinIO` server for the
 //! files, and its futures need tokio with its timer on: a save that finds a
 //! file's record held by a deletion tries up to 20 times, 50 milliseconds
 //! apart. It takes no lock.

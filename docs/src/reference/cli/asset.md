@@ -70,7 +70,7 @@ $ echo $?
 ```
 
 An error is one line on standard error: `arky: `, the store as the command line
-gave it, and what failed. A file store, a MinIO store and an S3 store keep no
+gave it, and what failed. A file store and a MinIO store keep no
 deletions, so a `--store` that names one exits with code 2:
 
 ```console
@@ -85,7 +85,7 @@ arky: `arky://notes` keeps no deletions: asset finish-deletions takes a MongoDB 
 | Code | Meaning |
 |---|---|
 | 0 | Success: each deletion that stopped halfway is finished. |
-| 2 | The command line is wrong: no `--store`; a `--store` that names a file, MinIO or S3 store, which keeps no deletions; or a store string that does not parse, that names an option its backend does not take, or that is a short form, such as `minio:notes`. |
+| 2 | The command line is wrong: no `--store`; a `--store` that names a file or MinIO store, which keeps no deletions; or a store string that does not parse, that names an option its backend does not take, or that is a short form, such as `minio:notes`. |
 | 3 | The store is not configured, or its configuration is wrong: a variable a store string names is not set or is not UTF-8, `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` not set for a `files` store string that carries no keys, a saved store no `arky.toml` defines, a backend this arky is built without, or an `arky.toml` that does not read. |
 | 4 | The store failed: a MongoDB or MinIO server that cannot be reached, or a MinIO server that refuses the keys. A failure to write standard output is code 4 too. |
 

@@ -31,7 +31,7 @@ url = "minio+https://minio.example.com/vault-a"
 "#;
 
 const WORK: &str = r#"[stores.vault_c]
-url = "s3://acme-c?region=eu-west-1"
+url = "minio+https://minio.example.com/acme-c"
 "#;
 
 /// A `MemorySystem` holding each of `files`, a path and its text.
@@ -124,7 +124,10 @@ async fn a_walk_from_higher_up_reads_only_the_files_above() {
         .await
         .unwrap();
     let urls: Vec<_> = stores.list().map(|saved| saved.url.as_str()).collect();
-    assert_eq!(urls, ["file:a", "file:b", "s3://acme-c?region=eu-west-1"]);
+    assert_eq!(
+        urls,
+        ["file:a", "file:b", "minio+https://minio.example.com/acme-c"]
+    );
 }
 
 #[tokio::test]

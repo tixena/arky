@@ -54,8 +54,9 @@ const FORMS: &[&str] = &[
 const JEKYLL_POST: &str = FIXTURES[10];
 
 /// The values a store string's keys come from: `${KEY}` and `${SECRET}` in
-/// the string, else the AWS keys. No output may show them.
-#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
+/// the string, else `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. No output
+/// may show them.
+#[cfg(feature = "minio")]
 const KEYS: [(&str, &str); 4] = [
     ("AWS_ACCESS_KEY_ID", "arky-unit-access"),
     ("AWS_SECRET_ACCESS_KEY", "arky-unit-secret"),
@@ -85,7 +86,7 @@ const SAVED_FAR: (&str, &str) = ("/home/me/arky.toml", "[stores.vault_b]\nurl = 
 /// runs in.
 const SAVED_MIDDLE: (&str, &str) = (
     "/home/me/work/arky.toml",
-    "[stores.vault_c]\nurl = \"s3://acme-vault-c?region=eu-west-1\"\n",
+    "[stores.vault_c]\nurl = \"minio+https://minio.example.com/vault-c\"\n",
 );
 
 /// The `arky.toml` of `/home/me/work/vault`, the folder `store list` runs in.
@@ -233,7 +234,7 @@ fn gave(ran: &Ran, text: &str) {
 }
 
 /// Asserts no value of `KEYS` is on `ran`'s standard error.
-#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
+#[cfg(feature = "minio")]
 fn hides_the_keys(ran: &Ran) {
     for (_, value) in KEYS {
         assert!(!ran.stderr.contains(value), "{}", ran.stderr);
@@ -241,7 +242,7 @@ fn hides_the_keys(ran: &Ran) {
 }
 
 /// `system` with the variables of `KEYS`.
-#[cfg(any(feature = "minio", feature = "mongodb", feature = "s3"))]
+#[cfg(feature = "minio")]
 fn keyed(system: MemorySystem) -> MemorySystem {
     KEYS.iter().fold(system, |with, (name, value)| {
         with.with_env(name, value).unwrap()
@@ -551,10 +552,6 @@ async fn each_short_form_exits_2_naming_it_and_a_folder_of_that_name_starts_with
         (
             "minio:notes",
             "minio: is not a store string: a MinIO store is minio+http://<host>/<bucket>",
-        ),
-        (
-            "s3:notes",
-            "s3: is not a store string: an S3 store is s3://<bucket>?region=<region>",
         ),
         (
             "mongodb:db/coll",
@@ -932,68 +929,6 @@ async fn a_mongodb_store_with_no_files_store_exits_2_naming_it() {
         2,
         "arky: `mongodb://127.0.0.1:1/notes/files`: files is required: the MinIO store of the collection's files\n",
     );
-}
-
-#[cfg(not(feature = "s3"))]
-#[tokio::test]
-async fn an_s3_store_exits_3_in_a_build_without_it() {
-    let system = vault("# A\n");
-    let store = "s3://notes/drafts?region=eu-west-1";
-    let ran = arky(&system, &["write", "b.md", "-s", store], b"# B\n").await;
-    failed(
-        &ran,
-        3,
-        "arky: `s3://notes/drafts?region=eu-west-1`: no backend for s3 in this build\n",
-    );
-    assert!(!system.exists(Path::new("/vault/b.md")).await.unwrap());
-}
-
-#[cfg(feature = "s3")]
-#[tokio::test]
-async fn an_s3_store_with_no_region_exits_2_and_with_no_keys_exits_3_naming_it() {
-    let system = vault("# A\n");
-    let no_region = arky(&system, &["get", "a.md", "-s", "s3://notes"], b"").await;
-    failed(
-        &no_region,
-        2,
-        "arky: `s3://notes`: no region: s3 needs ?region=<region>\n",
-    );
-    let store = "s3://notes/vault?region=eu-west-1";
-    let line = "arky: `s3://notes/vault?region=eu-west-1`: AWS_ACCESS_KEY_ID is not set: it holds the AWS access key\n";
-    failed(
-        &arky(&system, &["get", "a.md", "-s", store], b"").await,
-        3,
-        line,
-    );
-    failed(
-        &arky(&system, &["write", "b.md", "-s", store], b"# B\n").await,
-        3,
-        line,
-    );
-    failed(&arky(&system, &["fix", "-s", store], b"").await, 3, line);
-    assert!(!system.exists(Path::new("/vault/b.md")).await.unwrap());
-}
-
-#[cfg(feature = "s3")]
-#[tokio::test]
-async fn with_an_s3_store_the_path_is_checked_before_any_request() {
-    let system = keyed(vault("# A\n"));
-    let store = "s3://notes/vault?region=eu-west-1";
-    for path in ["/notes/a.md", "./a.md", "notes/../a.md"] {
-        let ran = arky(&system, &["get", path, "-s", store], b"").await;
-        failed(
-            &ran,
-            2,
-            &format!("arky: {path}: `{path}` is not a store path\n"),
-        );
-    }
-    let finish = arky(&system, &["asset", "finish-deletions", "-s", store], b"").await;
-    failed(
-        &finish,
-        2,
-        "arky: `s3://notes/vault?region=eu-west-1` keeps no deletions: asset finish-deletions takes a MongoDB store\n",
-    );
-    hides_the_keys(&finish);
 }
 
 #[test]
@@ -1737,7 +1672,7 @@ async fn store_list_writes_each_saved_store_in_use_sorted_aligned_with_its_url_a
         concat!(
             "vault_a  minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/vault-a  /home/me/work/vault/arky.toml\n",
             "vault_b  file:b                                                                   /home/me/arky.toml\n",
-            "vault_c  s3://acme-vault-c?region=eu-west-1                                       /home/me/work/arky.toml\n",
+            "vault_c  minio+https://minio.example.com/vault-c                                  /home/me/work/arky.toml\n",
         ),
     );
 }
@@ -1800,7 +1735,7 @@ async fn store_list_with_config_or_arky_config_lists_only_the_stores_of_that_fil
     .await;
     wrote_lines(
         &named,
-        "vault_c  s3://acme-vault-c?region=eu-west-1  /home/me/work/arky.toml\n",
+        "vault_c  minio+https://minio.example.com/vault-c  /home/me/work/arky.toml\n",
     );
     let relative = arky(&system, &["-c", "arky.toml", "store", "list"], b"").await;
     wrote_lines(

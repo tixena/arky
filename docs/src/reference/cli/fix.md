@@ -41,7 +41,7 @@ property, an invalid `type` value, and the classification of an inbox file.
 ## Expired locks
 
 A save holds the file `<file>.arky-lock` beside a document while it writes, or
-the object `<key>.arky-lock` in a MinIO or S3 bucket. A save that stops before it
+the object `<key>.arky-lock` in a MinIO bucket. A save that stops before it
 gives the lock back, such as an arky that is killed, leaves it behind. The next
 save of that document removes it once it has expired, but the lock of a document
 nobody saves again stays.
@@ -62,29 +62,27 @@ the `default` of `arky.toml`: with no `--store`, it repairs the file system.
 | none | Repairs the file system below `PATH`. A `PATH` that is not a folder exits with code 2. |
 | a `file:` string or a folder | Repairs the files of that folder below `PATH`. |
 | a MinIO string, `minio+https://<host>/<bucket>[/<prefix>]` | Repairs the objects of the bucket under `PATH`. |
-| an S3 string, `s3://<bucket>[/<prefix>]?region=<region>` | Repairs the objects of the AWS S3 bucket under `PATH`. |
 | a MongoDB string | Exits with code 2: a MongoDB store keeps no locks. |
 | `arky://<name>` | Repairs the store saved as `<name>`, as its store string does. |
 
-A MinIO or S3 store reads its keys as [`arky write`](write.md#stores) does,
-from the store string or from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`,
-and ignores `kms`: fix creates no bucket. A key that is not set exits with code
-3, on one line that names it. A prefix that is not a store path exits with code
-2. A MinIO server or AWS that cannot be reached, or that refuses the keys, exits
-with code 4.
+A MinIO store reads its keys as [`arky write`](write.md#stores) does, from the
+store string or from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. A key that
+is not set exits with code 3, on one line that names it. A prefix that is not a
+store path exits with code 2. A MinIO server that cannot be reached, or that
+refuses the keys, exits with code 4.
 
 ```console
-$ arky fix -s 's3://acme-notes/vault?region=eu-west-1'; echo "exit $?"
-arky: `s3://acme-notes/vault?region=eu-west-1`: AWS_ACCESS_KEY_ID is not set: it holds the AWS access key
+$ arky fix -s minio+https://minio.example.com/notes/vault; echo "exit $?"
+arky: `minio+https://minio.example.com/notes/vault`: AWS_ACCESS_KEY_ID is not set: it holds the MinIO access key
 exit 3
 ```
 
-This example needs an AWS S3 bucket, which the book's build does not have; it is
+This example needs a MinIO server, which the book's build does not have; it is
 written from arky's code:
 
 ```console
-$ export AWS_ACCESS_KEY_ID=AKIA... AWS_SECRET_ACCESS_KEY=...
-$ arky fix -s 's3://acme-notes/vault?region=eu-west-1'
+$ export AWS_ACCESS_KEY_ID=arky AWS_SECRET_ACCESS_KEY=arky-secret
+$ arky fix -s minio+https://minio.example.com/notes/vault
 notes/report.md.arky-lock
 ```
 
@@ -122,7 +120,7 @@ written from arky's code:
 
 ```console
 $ arky fix -s 'mongodb://db.example.com/work/docs?files=arky://media'
-arky: `mongodb://db.example.com/work/docs?files=arky://media` keeps no locks: fix takes the file system, or a file, MinIO or S3 store
+arky: `mongodb://db.example.com/work/docs?files=arky://media` keeps no locks: fix takes the file system, or a file or MinIO store
 $ echo $?
 2
 ```
@@ -136,8 +134,8 @@ command line gave it, and what failed.
 |---|---|
 | 0 | Success: each lock that had expired is removed. |
 | 2 | The command line is wrong: a `PATH` that is not a folder, or not a path of the `--store` store, such as `./notes`; a `--store` that names a MongoDB store, which keeps no locks; or a store string that does not parse, that names an option its backend does not take, or that is a short form, such as `minio:notes`. |
-| 3 | The configuration is wrong: an `arky.toml` that does not read, a variable a store string names that is not set or is not UTF-8, `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` not set for a MinIO or S3 store string that carries no keys, a saved store no `arky.toml` defines, or a backend this arky is built without. |
-| 4 | The store failed: a MinIO server or AWS that cannot be reached or refuses the keys, or a file system error. A failure to write standard output is code 4 too. |
+| 3 | The configuration is wrong: an `arky.toml` that does not read, a variable a store string names that is not set or is not UTF-8, `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` not set for a MinIO store string that carries no keys, a saved store no `arky.toml` defines, or a backend this arky is built without. |
+| 4 | The store failed: a MinIO server that cannot be reached or refuses the keys, or a file system error. A failure to write standard output is code 4 too. |
 
 ## Behavior
 

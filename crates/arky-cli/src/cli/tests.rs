@@ -85,7 +85,7 @@ fn the_short_and_long_options_parse() {
         "--input",
         "a.json",
         "--store",
-        "s3://notes/vault?region=eu-west-1",
+        "minio+https://minio.example.com/notes/vault",
         "--allow-missing",
     ])
     .unwrap();
@@ -99,7 +99,7 @@ fn the_short_and_long_options_parse() {
                 input: Some(input),
                 path: _,
                 store: Some(StoreArg(store)),
-            } if input.as_os_str() == "a.json" && store == "s3://notes/vault?region=eu-west-1"
+            } if input.as_os_str() == "a.json" && store == "minio+https://minio.example.com/notes/vault"
         ),
         "{write:?}"
     );
@@ -274,7 +274,6 @@ fn any_store_text_parses_as_it_was_written_for_the_backends_to_read() {
         "arky://notes/drafts",
         "minio+http://127.0.0.1:1/notes/drafts?region=us-east-1",
         "mongodb://h/notes/docs?files=arky%3A%2F%2Fmedia",
-        "s3://notes?region=eu-west-1",
         "minio:notes",
         "${VAULT}",
     ] {

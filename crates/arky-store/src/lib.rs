@@ -1,5 +1,5 @@
 //! Keeps arky's markdown documents, and the files they embed, in a folder, in
-//! an S3-compatible bucket or in `MongoDB`. Every store implements one async
+//! a `MinIO` bucket or in `MongoDB`. Every store implements one async
 //! trait, [`Store`], and the [`document`] functions save and load a whole
 //! document through any of them.
 //!
@@ -10,8 +10,7 @@
 //! process made in between. arky-store does that work. Each read gives a
 //! [`Revision`] and each write takes a [`Precondition`], so a save made from a
 //! stale read fails with [`StoreError::Conflict`]. In the file store and the
-//! bucket stores (`MinIO` and AWS S3), a save of a note and its pictures holds
-//! a lock that expires, and these stores also run over os-shim's in-memory
+//! `MinIO` store, a save of a note and its pictures holds a lock that expires, and these stores also run over os-shim's in-memory
 //! twins, so their tests need no disk, no server and no real clock.
 //!
 //! Use it beside [`arky`], which parses and writes the documents, when your
@@ -24,12 +23,12 @@
 //! | --- | --- | --- |
 //! | [`FileStore`](file::FileStore) | Each file at its path under a root folder, through an os-shim `System`: the disk, or `MemorySystem` in tests. | none |
 #![cfg_attr(
-    any(feature = "minio", feature = "s3"),
-    doc = "| [`ObjectStore`](object::ObjectStore) | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket` with `minio`, an AWS S3 bucket through `S3Bucket` with `s3`, or `MemoryBucket` in tests. The bucket stores are this store over `MinioBucket` and over `S3Bucket`. `ensure` creates a missing bucket. | `minio` or `s3` |"
+    feature = "minio",
+    doc = "| [`ObjectStore`](object::ObjectStore) | Each file as an object of one bucket, under an optional key prefix: a `MinIO` server through `MinioBucket`, or `MemoryBucket` in tests. The bucket store is this store over `MinioBucket`. `ensure` creates a missing bucket. | `minio` |"
 )]
 #![cfg_attr(
-    not(any(feature = "minio", feature = "s3")),
-    doc = "| `ObjectStore` | Each file as an object of one bucket, under an optional key prefix: a `MinIO` or other S3-compatible server through `MinioBucket` with `minio`, an AWS S3 bucket through `S3Bucket` with `s3`, or `MemoryBucket` in tests. The bucket stores are this store over `MinioBucket` and over `S3Bucket`. `ensure` creates a missing bucket. | `minio` or `s3` |"
+    not(feature = "minio"),
+    doc = "| `ObjectStore` | Each file as an object of one bucket, under an optional key prefix: a `MinIO` server through `MinioBucket`, or `MemoryBucket` in tests. The bucket store is this store over `MinioBucket`. `ensure` creates a missing bucket. | `minio` |"
 )]
 #![cfg_attr(
     feature = "mongodb",
@@ -51,7 +50,7 @@
 //! [dependencies]
 //! arky = "0.2"
 //! arky-store = "0.2"
-//! os-shim = "0.2"
+//! os-shim = "0.3"
 //! tokio = { version = "1", features = ["rt", "macros"] }
 //! ```
 //!
@@ -246,7 +245,7 @@
 //! }
 //! ```
 #![cfg_attr(
-    any(feature = "minio", feature = "s3"),
+    feature = "minio",
     doc = r##"
 ## A bucket, and the same bucket in memory in tests
 
@@ -255,9 +254,7 @@ prefix: the file `posts/hello.md` under the prefix `blog` is the object
 `blog/posts/hello.md`. A precondition goes to the bucket with the write, so
 the check and the write are one step. In production, `ObjectStore::open`
 builds the store over a `MinioBucket` from an `ObjectConfig`, with its keys
-read from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. For an AWS S3
-bucket, `ObjectStore::open_s3` builds the store over an `S3Bucket` from an
-`S3ObjectConfig`, with the same two variables. In a test,
+read from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. In a test,
 [`ObjectStore::new`](object::ObjectStore::new) takes os-shim's `MemoryBucket`,
 which reaches no server.
 
@@ -356,15 +353,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! | Feature | What it turns on | What your manifest also needs |
 //! | --- | --- | --- |
 //! | `minio` | The `object` module, `AnyStore::Minio`, and the `minio+http` and `minio+https` store strings of the `backend` module. | `os-shim` with its `minio` feature, to name `MinioBucket` or `MemoryBucket`. |
-//! | `s3` | The `object` module, `AnyStore::S3`, and the `s3` store strings of the `backend` module. | `os-shim` with its `s3` feature, to name `S3Bucket`. |
-//! | `mongodb` | The `mongo` module, `AnyStore::Mongo`, and `minio`. | `bson = { version = "3.1", features = ["serde"] }`, to write the filters `MongoStore::find` takes. A `MongoDB` server, and an S3-compatible server for the embedded files. |
+//! | `mongodb` | The `mongo` module, `AnyStore::Mongo`, and `minio`. | `bson = { version = "3.1", features = ["serde"] }`, to write the filters `MongoStore::find` takes. A `MongoDB` server, and a `MinIO` server for the embedded files. |
 //! | `binary-format` | arky's `binary-format`, so `document::put` takes `Form::Binary`. | Nothing more. |
 //!
 //! ```toml
 //! [dependencies]
 //! arky-store = { version = "0.2", features = ["mongodb"] }
 //! bson = { version = "3.1", features = ["serde"] }
-//! os-shim = { version = "0.2", features = ["minio"] }
+//! os-shim = { version = "0.3", features = ["minio"] }
 //! ```
 //!
 //! Every method of [`Store`] returns a future. Over `MemorySystem` and
@@ -392,7 +388,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! - What a delete where no file is answers differs per store: see each
 //!   store's `delete`.
 //! - There is no in-memory `MongoDB` store. `AnyStore::Minio` holds only a
-//!   store over `MinioBucket`, and `AnyStore::S3` only one over `S3Bucket`.
+//!   store over `MinioBucket`.
 //! - An object key holds at most 1024 bytes, the key prefix included.
 
 extern crate alloc;
@@ -410,7 +406,7 @@ pub mod file;
 pub mod lock;
 #[cfg(feature = "mongodb")]
 pub mod mongo;
-#[cfg(any(feature = "minio", feature = "s3"))]
+#[cfg(feature = "minio")]
 pub mod object;
 
 use alloc::collections::BTreeMap;
@@ -571,7 +567,7 @@ pub enum StoreError {
     #[error("`{0}` is not a store path")]
     InvalidPath(String),
     /// A store string that does not parse, or that names an option or a part
-    /// its backend does not take: `` `s3://acme?regoin=eu-west-1`: unknown option regoin ``.
+    /// its backend does not take: `` `minio+http://h/acme?regoin=eu-west-1`: unknown option regoin ``.
     #[error("{0}")]
     InvalidStore(String),
     /// A store that cannot be opened as configured: a variable it names is not
@@ -593,8 +589,7 @@ pub enum StoreError {
 #[non_exhaustive]
 pub struct Capabilities {
     /// A precondition is checked and the write done as one step: `false` in
-    /// the file store, `true` in the `MinIO` store, the AWS S3 store and the
-    /// `MongoDB` store.
+    /// the file store, `true` in the `MinIO` store and the `MongoDB` store.
     pub atomic_preconditions: bool,
 }
 
@@ -613,7 +608,7 @@ impl Capabilities {
 /// deleted and listed by [`StorePath`].
 ///
 /// Each method returns a future that is `Send`. [`file::FileStore`] is always
-/// here, `object::ObjectStore` with the `minio` feature or the `s3` feature,
+/// here, `object::ObjectStore` with the `minio` feature,
 /// `mongo::MongoStore` with the `mongodb` feature, and [`any::AnyStore`] holds
 /// any of them. A type outside this crate implements `Store` with
 /// [`Revision::new`], [`Stored::new`] and [`Capabilities::new`], and holds the
@@ -629,8 +624,8 @@ pub trait Store {
     /// `StoreError::Conflict` when `precondition` does not hold, which
     /// includes `Precondition::Matches` where no file is.
     /// `StoreError::NotFound` where no file is under `Precondition::None` or
-    /// `Precondition::Absent`, except in the `MinIO` and AWS S3 stores, whose
-    /// delete then succeeds. `StoreError::Backend` when the store fails.
+    /// `Precondition::Absent`, except in the `MinIO` store, whose delete then
+    /// succeeds. `StoreError::Backend` when the store fails.
     fn delete(
         &self,
         path: &StorePath,
