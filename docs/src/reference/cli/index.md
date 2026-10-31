@@ -46,13 +46,13 @@ Seven environment variables are read, and each variable a
 | `ANTHROPIC_API_KEY` | Credential for the language-model provider used by `arky inbox`. |
 | `OPENAI_API_KEY` | Credential for the language-model provider used by `arky inbox`. |
 | `NO_COLOR` | Turns colored output off. |
-| `AWS_ACCESS_KEY_ID` | The access key every request of a MinIO or S3 store is signed with, when its store string carries no keys. |
-| `AWS_SECRET_ACCESS_KEY` | The secret key every request of a MinIO or S3 store is signed with, when its store string carries no keys. No output and no error shows it. |
+| `AWS_ACCESS_KEY_ID` | The access key every request of a MinIO store is signed with, when its store string carries no keys. |
+| `AWS_SECRET_ACCESS_KEY` | The secret key every request of a MinIO store is signed with, when its store string carries no keys. No output and no error shows it. |
 
 ## Store strings
 
 A store string names a store in one text shaped like a URL, such as
-`s3://acme-notes/vault?region=eu-west-1`. [`arky get`](get.md),
+`minio+https://minio.example.com/notes/vault`. [`arky get`](get.md),
 [`arky write`](write.md), [`arky fix`](fix.md) and
 [`arky asset finish-deletions`](asset.md) take one in `--store`, `arky get` and
 `arky write` take one in their path and in `ARKY_STORE`, and a saved store of
@@ -66,12 +66,12 @@ minio+https://arky:secret@minio.example.com:9000/notes/vault?region=us-east-1
 
 | Part | In the sample | What it is |
 |---|---|---|
-| backend | `minio` | The kind of store: `file`, `minio`, `s3`, `mongodb` or `arky`. |
+| backend | `minio` | The kind of store: `file`, `minio`, `mongodb` or `arky`. |
 | transport | `+https` | How the backend reaches its server: `+http` or `+https` after `minio`, `+srv` after `mongodb` for a server found by its DNS record. The other backends take none. |
-| credentials | `arky:secret@` | The keys of a MinIO or S3 store, or the user and password of a MongoDB server, percent-encoded. Optional. |
-| host | `minio.example.com` | The server. An S3 string has no server: its host is the bucket, as the AWS command line writes it. A MongoDB string may list several hosts, `h1:27017,h2:27017`. |
-| port | `:9000` | The server's port. Optional; an S3 string takes none. |
-| container | `notes` | What holds the store: the bucket of a MinIO string, the host of an S3 string, `<database>/<collection>` of a MongoDB string, the name of an `arky://` string. A `file:` string names a folder. |
+| credentials | `arky:secret@` | The keys of a MinIO store, or the user and password of a MongoDB server, percent-encoded. Optional. |
+| host | `minio.example.com` | The server. A MongoDB string may list several hosts, `h1:27017,h2:27017`. |
+| port | `:9000` | The server's port. Optional. |
+| container | `notes` | What holds the store: the bucket of a MinIO string, `<database>/<collection>` of a MongoDB string, the name of an `arky://` string. A `file:` string names a folder. |
 | location | `vault` | A folder inside the container: the prefix of every object key in a bucket, or a folder inside a MongoDB collection or a saved store. Optional. |
 | options | `?region=us-east-1` | `<option>=<value>` pairs, joined by `&`. Each backend takes its own, and refuses with code 2 an option it does not take. |
 
@@ -81,7 +81,6 @@ minio+https://arky:secret@minio.example.com:9000/notes/vault?region=us-east-1
 |---|---|---|
 | file | `file:///<absolute path>`, `file:<relative path>`, or a plain path | none |
 | MinIO | `minio+https://[<key>:<secret>@]<host>[:<port>]/<bucket>[/<prefix>]`, or `minio+http://` | `region`, `us-east-1` when it is left out |
-| AWS S3 | `s3://[<key>:<secret>@]<bucket>[/<prefix>]` | `region`, required; `kms`, the ARN of the KMS key a bucket that a write creates is encrypted with by default |
 | MongoDB | `mongodb://[<user>:<password>@]<host>[:<port>][,<host>[:<port>]…]/<database>/<collection>[/<folder>]`, or `mongodb+srv://` | `files`, required: the MinIO store of the collection's files; every other option goes to the MongoDB driver as written |
 | saved store | `arky://<name>[/<folder>]` | none |
 
@@ -91,7 +90,6 @@ One sample of each:
 file:notes
 file:///srv/notes
 minio+https://minio.example.com/notes/vault?region=us-east-1
-s3://acme-notes/vault?region=eu-west-1
 mongodb+srv://${MONGO_USER}:${MONGO_PASSWORD}@cluster0.example.net/work/docs?files=arky://media
 arky://notes
 ```
@@ -101,7 +99,7 @@ absolute folder `/srv/notes`, and `file:notes` and `file:./notes` are `notes`
 under the current folder, or under the folder of the `arky.toml` that saves it.
 It takes no option.
 
-A MinIO or S3 string with no `<key>:<secret>@` signs its requests with
+A MinIO string with no `<key>:<secret>@` signs its requests with
 `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. A prefix, and a folder after a
 collection or a saved store's name, follow the rules of a store path: parts
 joined by `/`, none empty, none `.` or `..`.
@@ -116,7 +114,7 @@ names each object. `arky://<name>` is the store saved as `[stores.<name>]` in
 
 A text whose scheme, the part before its first `:`, no backend answers is a plain
 path, a folder of the file store: `notes`, `../notes` and `notes:report.md` name
-what they name in a shell. `minio:`, `s3:` and `mongodb:` followed by anything but
+what they name in a shell. `minio:` and `mongodb:` followed by anything but
 `//` are refused with code 2 rather than read as folders, and a folder of such a
 name is written with `./` in front:
 
@@ -129,7 +127,7 @@ $ arky get a.md -s ./minio:notes
 ```
 
 A `<scheme>://` text whose scheme no backend of this arky answers exits with code
-3, and so does a MinIO, S3 or MongoDB string in an arky built without that
+3, and so does a MinIO or MongoDB string in an arky built without that
 backend:
 
 ```console
@@ -198,7 +196,6 @@ the path:
 |---|---|---|
 | `arky://notes/ideas.md` | the saved store `notes` | `ideas.md` |
 | `minio+https://minio.example.com/notes/vault/ideas.md` | the bucket `notes` | `vault/ideas.md` |
-| `s3://acme-notes/vault/ideas.md?region=eu-west-1` | the bucket `acme-notes` | `vault/ideas.md` |
 | `mongodb://db.example.com/work/docs/ideas.md?files=arky://media` | the collection `docs` of the database `work` | `ideas.md` |
 | `file:notes/ideas.md` | the current folder | `notes/ideas.md` |
 | `file:///srv/notes/ideas.md` | the folder `/` | `srv/notes/ideas.md` |
@@ -263,7 +260,7 @@ $ arky get arky://notes/ideas.md -s ../notes
 
 ### From the short forms
 
-`minio:`, `s3:` and `mongodb:` followed by a bucket or a database named a store
+`minio:` and `mongodb:` followed by a bucket or a database named a store
 before store strings, and environment variables gave the server, the region and
 the rest. Each such store is now one store string, written in `--store` or saved
 under a name:

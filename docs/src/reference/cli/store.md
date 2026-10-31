@@ -47,7 +47,7 @@ $ cat ~/arky.toml
 url = "file:b"
 $ cat ~/work/arky.toml
 [stores.vault_c]
-url = "s3://acme-vault-c?region=eu-west-1"
+url = "minio+https://minio.example.com/vault-c"
 $ cd ~/work/vault
 $ cat arky.toml
 [stores.vault_a]
@@ -55,7 +55,7 @@ url = "minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/vault-a"
 $ arky store list
 vault_a  minio+https://${MINIO_USER}:${MINIO_PASSWORD}@minio.example.com/vault-a  /home/me/work/vault/arky.toml
 vault_b  file:b                                                                   /home/me/arky.toml
-vault_c  s3://acme-vault-c?region=eu-west-1                                       /home/me/work/arky.toml
+vault_c  minio+https://minio.example.com/vault-c                                  /home/me/work/arky.toml
 $ arky store list -c ~/arky.toml
 vault_b  file:b  /home/me/arky.toml
 ```

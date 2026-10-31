@@ -2197,7 +2197,7 @@ fn alias_name(cursor: &mut Cursor<'_>) -> Result<(String, Range<usize>), ParseEr
 /// Reads the `&` or the `*` at the cursor and the name after it.
 fn anchor_name(cursor: &mut Cursor<'_>) -> Result<String, ParseError> {
     let at = cursor.pos();
-    let indicator = cursor.peek().map(char::from).unwrap_or_default();
+    let indicator = cursor.peek().map_or_default(char::from);
     let name = pass_name(cursor);
     if name.is_empty() {
         let message = format!("expected a name after `{indicator}`");

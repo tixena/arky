@@ -164,7 +164,7 @@ after it is taken, 5 by default, and `wait_seconds` sets how long a save waits o
 another save's lock before it is rejected, 2 by default. Each is a whole number
 of seconds above zero, and these two keys are the only ones the table takes: any
 other key, or a value that is not a whole number above zero, exits with code 3.
-The file store, the MinIO store and the S3 store take these settings; see
+The file store and the MinIO store take these settings; see
 [arky write](cli/write.md). `default`, `[lock]` and `[stores.<name>]` are what
 arky reads today; it leaves the other tables alone.
 
@@ -218,12 +218,12 @@ $ cat ~/work/arky.toml
 url = "file:vault"
 
 [stores.archive]
-url = "s3://acme-archive?region=eu-west-1"
+url = "file:archive"
 $ arky get ideas.md
 # Ideas at home
 $ cd ~/work
 $ arky store list
-archive  s3://acme-archive?region=eu-west-1     /home/me/work/arky.toml
+archive  file:archive                           /home/me/work/arky.toml
 media    minio+https://minio.example.com/media  /home/me/arky.toml
 notes    file:vault                             /home/me/work/arky.toml
 $ arky get ideas.md

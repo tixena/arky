@@ -26,14 +26,13 @@ const CONFIG_VARIABLE: &str = "ARKY_CONFIG";
 /// The short forms that named a store before store strings, refused rather
 /// than read as folders: each one's scheme, its kind of store, and the store
 /// string of such a store.
-const SHORT_FORMS: [(&str, &str, &str); 3] = [
+const SHORT_FORMS: [(&str, &str, &str); 2] = [
     ("minio", "a MinIO store", "minio+http://<host>/<bucket>"),
     (
         "mongodb",
         "a MongoDB store",
         "mongodb://<host>/<database>/<collection>?files=<MinIO store>",
     ),
-    ("s3", "an S3 store", "s3://<bucket>?region=<region>"),
 ];
 
 /// The variable naming the store of a get or a write when `--store` names
@@ -101,7 +100,7 @@ impl Failure {
         Self {
             code: 2,
             message: format!(
-                "{} keeps no locks: fix takes the file system, or a file, MinIO or S3 store",
+                "{} keeps no locks: fix takes the file system, or a file or MinIO store",
                 name.label
             ),
         }

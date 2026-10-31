@@ -1,10 +1,7 @@
 //! The store over `MemoryBucket`, and over a bucket whose every call fails;
 //! under `cfg(store_tests)`, over `MinioBucket` on the `RustFS` server
-//! `just test-stores` starts; under `cfg(s3_tests)`, over `S3Bucket` on the
-//! AWS bucket `just test-s3` names.
+//! `just test-stores` starts.
 
-#[cfg(all(s3_tests, feature = "s3"))]
-mod aws;
 #[cfg(all(store_tests, feature = "minio"))]
 mod server;
 
@@ -24,8 +21,6 @@ use os_shim::mock::MemorySystem;
 #[cfg(feature = "minio")]
 use super::ObjectConfig;
 use super::ObjectStore;
-#[cfg(feature = "s3")]
-use super::S3ObjectConfig;
 use crate::any::AnyStore;
 use crate::document::{get, put};
 use crate::file::FileStore;
@@ -488,35 +483,6 @@ async fn ensure_on_a_server_that_cannot_be_reached_is_a_backend_error_that_never
     assert!(!refused.to_string().contains(SECRET), "{refused}");
 }
 
-#[cfg(feature = "s3")]
-#[test]
-fn an_s3_open_names_the_variable_that_is_not_set_and_never_shows_the_secret_key() {
-    let config = || S3ObjectConfig::new("eu-west-1".to_owned(), "notes".to_owned(), None);
-    let access =
-        StoreError::Backend("AWS_ACCESS_KEY_ID is not set: it holds the AWS access key".to_owned());
-    assert_eq!(
-        ObjectStore::open_s3(&MemorySystem::new(), config()).err(),
-        Some(access)
-    );
-    let only_access = MemorySystem::new()
-        .with_env("AWS_ACCESS_KEY_ID", "arky")
-        .unwrap();
-    let secret = StoreError::Backend(
-        "AWS_SECRET_ACCESS_KEY is not set: it holds the AWS secret key".to_owned(),
-    );
-    assert_eq!(
-        ObjectStore::open_s3(&only_access, config()).err(),
-        Some(secret)
-    );
-    let both = only_access
-        .with_env("AWS_SECRET_ACCESS_KEY", SECRET)
-        .unwrap();
-    let store = ObjectStore::open_s3(&both, config()).unwrap();
-    let shown = format!("{store:?}");
-    assert!(!shown.contains(SECRET), "{shown}");
-    assert!(AnyStore::S3(store).capabilities().atomic_preconditions);
-}
-
 #[tokio::test]
 async fn a_lock_is_an_object_holding_the_guid_and_the_seconds_it_was_taken() {
     let taken = SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_700_000);
@@ -622,18 +588,12 @@ async fn a_document_goes_into_each_boxed_store_and_comes_back() {
 }
 
 #[tokio::test]
-async fn ensure_container_asks_the_bucket_for_the_key_the_store_is_encrypted_with() {
+async fn ensure_container_asks_the_bucket_to_create_itself() {
     let system = MemorySystem::new();
     let watched = TestBucket::default();
-    let arn = "arn:aws:kms:eu-west-1:111122223333:key/notes";
-    let plain = ObjectStore::new(watched.clone(), None, &system);
-    plain.ensure_container().await.unwrap();
-    let encrypted = ObjectStore::new(watched.clone(), None, &system).encrypted_with(arn.to_owned());
-    encrypted.ensure_container().await.unwrap();
-    assert_eq!(
-        watched.seen(),
-        ["ensure None", &format!("ensure Some({arn:?})")]
-    );
+    let store = ObjectStore::new(watched.clone(), None, &system);
+    store.ensure_container().await.unwrap();
+    assert_eq!(watched.seen(), ["ensure"]);
 }
 
 #[tokio::test]

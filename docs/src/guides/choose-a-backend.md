@@ -15,8 +15,7 @@ supported list:
 |---|---|
 | A filesystem | A plain directory tree. |
 | git | A version-control system that already keeps a history of its own. |
-| Amazon Web Services' S3 | An object store run as a service. |
-| Minio | An object store offering the same interface as S3 on hardware you run yourself. |
+| Minio | An object store on hardware you run yourself. |
 | MongoDB | A document database. |
 
 ## Select a backend

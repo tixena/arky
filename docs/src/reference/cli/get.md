@@ -147,35 +147,6 @@ $ arky get notes/task.md | cmp - task.md && echo same
 same
 ```
 
-With `s3://<bucket>/<prefix>?region=<region>`, the store is the AWS S3 bucket
-`<bucket>` in that region, its files kept as objects whose keys start with
-`<prefix>/`, or with no prefix when it is left out, as in a MinIO store. The
-bucket must already exist: a get creates no bucket. The option `region` is
-required. A string with no `<key>:<secret>@` signs every request with
-`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. No output and no error shows the
-secret.
-
-A string with no region, or a prefix that is not a store path, exits with code 2.
-A key that is not set exits with code 3, on one line that names it. AWS that
-cannot be reached, or that refuses the keys, exits with code 4.
-
-```console
-$ arky get notes/task.md -s s3://acme-notes/vault; echo "exit $?"
-arky: `s3://acme-notes/vault`: no region: s3 needs ?region=<region>
-exit 2
-$ arky get notes/task.md -s 's3://acme-notes/vault?region=eu-west-1'; echo "exit $?"
-arky: `s3://acme-notes/vault?region=eu-west-1`: AWS_ACCESS_KEY_ID is not set: it holds the AWS access key
-exit 3
-```
-
-This example needs an AWS S3 bucket, which the book's build does not have; it is
-written from arky's code:
-
-```console
-$ export AWS_ACCESS_KEY_ID=AKIA... AWS_SECRET_ACCESS_KEY=...
-$ arky get 's3://acme-notes/vault/notes/task.md?region=eu-west-1' > task.md
-```
-
 With `mongodb://<host>/<database>/<collection>?files=<MinIO store>`, or
 `mongodb+srv://`, the store is the collection `<collection>` of the database
 `<database>` on that MongoDB server. The collection keeps each document, and the
@@ -215,15 +186,15 @@ $ arky get notes/task.md | arky write notes/task.md -s arky://work
 $ arky get arky://work/notes/task.md
 ```
 
-An arky built without its default features has none of the MinIO, S3 and MongoDB
+An arky built without its default features has none of the MinIO and MongoDB
 backends, and a store string of one of them exits with code 3 in it:
 
 ```console
-$ arky get notes/task.md -s 's3://acme-notes/vault?region=eu-west-1'
-arky: `s3://acme-notes/vault?region=eu-west-1`: no backend for s3 in this build
+$ arky get notes/task.md -s minio+https://minio.example.com/notes/vault
+arky: `minio+https://minio.example.com/notes/vault`: no backend for minio+https in this build
 ```
 
-`minio:`, `s3:` and `mongodb:` followed by anything but `//`, the short forms that
+`minio:` and `mongodb:` followed by anything but `//`, the short forms that
 named a store before store strings, exit with code 2; see
 [Store strings](index.md#store-strings).
 
@@ -234,8 +205,8 @@ named a store before store strings, exit with code 2; see
 | 0 | Success. |
 | 1 | The document could not be read or written in the form: not UTF-8, not JSON, not this version of the binary form, or a value the frontmatter syntax cannot hold. Without `--allow-missing`, a file the document embeds that is missing, or an embed that leaves the document's folder. |
 | 2 | The command line is wrong: an unknown option, a missing path, a value an option does not take, `--embed` without `--output` or with a form other than markdown, or a path that cannot name a file, such as `/`, or that is not a path of its store, such as `./a.md` with a `--store`. A store string that does not parse, that names an option its backend does not take, or that is a short form, such as `minio:notes`, is code 2 too. |
-| 3 | The store is not configured, or its configuration is wrong: a variable a store string names is not set or is not UTF-8, `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` is not set for a MinIO or S3 store string that carries no keys, `ARKY_STORE` or `ARKY_CONFIG` is not UTF-8, a saved store no `arky.toml` defines, a backend this arky is built without, a file that `--config` or `ARKY_CONFIG` names and that does not exist, or an `arky.toml` that does not read. |
-| 4 | The store failed: a file system error, such as a folder that is not writable or a path that is a folder, a MongoDB or MinIO server or AWS that cannot be reached, or a MinIO server or AWS that refuses the keys. A failure to write standard output is code 4 too. |
+| 3 | The store is not configured, or its configuration is wrong: a variable a store string names is not set or is not UTF-8, `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` is not set for a MinIO store string that carries no keys, `ARKY_STORE` or `ARKY_CONFIG` is not UTF-8, a saved store no `arky.toml` defines, a backend this arky is built without, a file that `--config` or `ARKY_CONFIG` names and that does not exist, or an `arky.toml` that does not read. |
+| 4 | The store failed: a file system error, such as a folder that is not writable or a path that is a folder, a MongoDB or MinIO server that cannot be reached, or a MinIO server that refuses the keys. A failure to write standard output is code 4 too. |
 | 6 | No file at the path. |
 
 Code 5 belongs to the language-model provider error of the validation run; see

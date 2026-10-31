@@ -380,7 +380,7 @@ fn fix_of_a_mongodb_store_exits_2_as_it_keeps_no_locks() {
     let folder = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let store = store(FIXED_DATABASE, &format!("{}/binary/fixed", bucket()));
     let line = format!(
-        "arky: `{store}` keeps no locks: fix takes the file system, or a file, MinIO or S3 store\n"
+        "arky: `{store}` keeps no locks: fix takes the file system, or a file or MinIO store\n"
     );
     arky_in(folder.path(), &["fix", "-s", &store])
         .code(2_i32)
