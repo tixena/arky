@@ -54,7 +54,7 @@ os-shim = "0.2.1"
 futures-io = "0.3.34"
 
 # SHA-256, for the revision of a stored file
-sha2 = "0.11"
+sha2 = "0.11.1"
 
 # Base64, for files written into embeds as data URIs
 base64 = "0.23"
