@@ -48,7 +48,7 @@ unicase = "2.10"
 unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
 
 # The operating system behind a trait, real or in memory
-os-shim = "0.3"
+os-shim = "0.4"
 
 # The reader and writer traits of os-shim's streams, for the test buckets
 futures-io = "0.3.34"
