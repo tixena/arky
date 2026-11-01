@@ -50,7 +50,7 @@
 //! [dependencies]
 //! arky = "0.2"
 //! arky-store = "0.2"
-//! os-shim = "0.3"
+//! os-shim = "0.4"
 //! tokio = { version = "1", features = ["rt", "macros"] }
 //! ```
 //!

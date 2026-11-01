@@ -186,6 +186,13 @@ impl Bucket for TestBucket {
         })
     }
 
+    fn reachable(&self) -> BoxFuture<'_, StorageResult<()>> {
+        Box::pin(async move {
+            self.answer(Path::new("/"))?;
+            self.bucket.reachable().await
+        })
+    }
+
     fn read_stream<'bucket, 'call>(
         &'bucket self,
         path: &'call Path,
